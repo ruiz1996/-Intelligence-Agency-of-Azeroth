@@ -4,7 +4,7 @@ import { clone, seededRandom, requireRule } from './primitives.js';
 const alive=units=>units.filter(u=>u.hp>0);
 const distance=(a,b)=>(a.x-b.x)**2+(a.y-b.y)**2;
 export function chooseTarget(attacker,targets) {
-  return alive(targets).sort((a,b)=>a.row-b.row||distance(attacker,a)-distance(attacker,b)||a.order-b.order)[0];
+  return alive(targets).filter(u=>u.targetable!==false&&u.attackable!==false).sort((a,b)=>a.row-b.row||distance(attacker,a)-distance(attacker,b)||a.order-b.order)[0];
 }
 const lowest=units=>alive(units).sort((a,b)=>a.hp/a.maxHp-b.hp/b.maxHp||a.order-b.order)[0];
 const EPS=1e-8;
@@ -18,14 +18,17 @@ export function simulate(challenge,{trace=true}={}) {
   const effect=type=>buffs.filter(b=>b.effect_type===type);
   const param=(type,key)=>effect(type).reduce((n,b)=>n+(b.parameters[key]||0),0);
   const has=type=>effect(type).length>0;
-  let time=0,previousTime=0,sequence=0,shieldSequence=0,interferenceUntil=0,ended=false;
+  let time=0,previousTime=0,sequence=0,shieldSequence=0,interferenceUntil=0,interferenceSpeed=1,ended=false;
   const counters={damage:0,healing:0,shieldCreated:0,shieldAbsorbed:0,shieldSpent:0,shieldExpired:0,selfPaid:0,debtCreated:0,debtPaid:0,debtPurified:0};
   const schedule=(at,priority,fn)=>{if(at<=90+EPS)queue.push({at:Math.round(at*1e6)/1e6,priority,sequence:sequence++,fn});};
   const emit=(type,fields={})=>{if(trace)events.push({time,type,...fields});};
   const stateUnit=u=>Object.assign(u,{shields:[],dots:[],debt:[],echoes:[],hp:u.maxHp,actions:0,basics:0,casts:0,focusCount:0,focusTarget:null,dotStacks:0,flags:{},icd:{},enemyDeficit:0,selfDeficit:0,lastEnemyHpHit:-Infinity,actionBuff:0,actionBuffCount:0,immuneUntil:0,reductionUntil:0,reduction:0,castAt:0,cdReduction:0,deadCommitted:false});
   const heroes=challenge.heroes.map(h=>stateUnit({...h,side:'hero',name:HERO_BY_ID[h.id].name,maxHp:h.hp,row:Math.floor(h.slot/3),x:h.slot%3,y:Math.floor(h.slot/3),w:1,h:1,order:h.slot,cdRemaining:h.cd}));
-  const enemies=task.enemies.map((e,i)=>stateUnit({id:e.id,side:'enemy',name:e.type==='boss'?task.name:e.type==='elite'?'精英守卫':'外围守卫',maxHp:e.hp,atk:e.atk,def:e.def,interval:e.interval,skill:e.skill,kind:e.type,row:e.y,x:e.x+(e.width-1)/2,y:-1-e.y-(e.height-1)/2,gridX:e.x,gridY:e.y,w:e.width,h:e.height,order:i,cdRemaining:e.skill?.cd??Infinity}));
-  const units=()=>[...heroes,...enemies],boss=enemies.find(e=>e.kind==='boss'),mechanic=task.mechanic;
+  const waves=task.waves;requireRule(Array.isArray(waves)&&waves.length>0,'副本波次数据不可用');
+  let enemies=[],boss=null,mechanic=null,waveIndex=-1,waveStartedAt=0,waveToken=0,completedWaves=0;
+  const units=()=>[...heroes,...enemies],localTime=()=>time-waveStartedAt;
+  const attackTargets=()=>alive(enemies).filter(e=>e.targetable!==false&&e.attackable!==false);
+  const scheduleWave=(at,priority,fn)=>{const token=waveToken;schedule(at,priority,()=>{if(token===waveToken)fn();});};
   const totalShield=u=>u.shields.reduce((n,s)=>n+s.amount,0);
   const snapshot=()=>units().map(u=>({id:u.id,hp:Math.max(0,u.hp),shield:totalShield(u),immune:u.immuneUntil>time,interfered:u.side==='hero'&&interferenceUntil>time,debt:u.debt.reduce((n,b)=>n+b.amount,0),ready:u.cdRemaining<=EPS}));
   const primarySupport=(kind,target)=>1+(bonus[kind+'_pct']||0)+param('support',kind+'_pct')+(target.row===0?param('position_support',kind+'_pct'):0);
@@ -90,16 +93,16 @@ export function simulate(challenge,{trace=true}={}) {
       for(const b of effect('conditional_reduction'))if(target.hp/target.maxHp<b.parameters.threshold)red+=b.parameters.reduction;
     } else if(target===boss) {
       if(mechanic?.id==='printer'&&alive(enemies).some(e=>e!==boss))red+=mechanic.protectionWhileAdds;
-      if(mechanic?.id==='cabinet'&&Math.floor(time/mechanic.phaseSeconds)%2===1)red+=mechanic.heavyReduction;
+      if(mechanic?.id==='cabinet'&&Math.floor(localTime()/mechanic.phaseSeconds)%2===1)red+=mechanic.heavyReduction;
     }
     return Math.min(.6,red);
   }
   function receive(caster,target,amount,{tag='basic',bypass=false,debt=false,critical=false,rawAmount=amount}={}) {
-    if(!target||target.hp<=0||amount<=0)return {hp:0,absorbed:0};
+    if(!target||target.hp<=0||target.attackable===false||amount<=0)return {hp:0,absorbed:0};
     if(!debt&&target.immuneUntil>time)return {hp:0,absorbed:0};
     if(!bypass&&!debt) {
       amount*=100/(100+Math.max(0,target.def))*(1-extraReduction(target,tag));
-      if(target===boss&&mechanic?.id==='cabinet'&&Math.floor(time/mechanic.phaseSeconds)%2===0)amount*=1+mechanic.lightDamageTakenBonus;
+      if(target===boss&&mechanic?.id==='cabinet'&&Math.floor(localTime()/mechanic.phaseSeconds)%2===0)amount*=1+mechanic.lightDamageTakenBonus;
     }
     if(target.id==='qinglian'&&caster?.side==='enemy'&&['basic','active'].includes(tag)&&!debt&&!bypass){const p=HERO_BY_ID[target.id].passive,delayed=amount*p.delayFraction;amount-=delayed;target.debt.push({amount:delayed,left:p.repayOverFollowingOwnActionEnds});counters.debtCreated+=delayed;}
     const beforeShield=amount;if(!bypass)amount=consumeShield(target,amount);const absorbed=beforeShield-amount;
@@ -124,7 +127,7 @@ export function simulate(challenge,{trace=true}={}) {
     return receive(caster,target,value,{tag,critical,rawAmount:boosted});
   }
   function commitDeaths() {
-    const deaths=units().filter(u=>u.hp<=0&&!u.deadCommitted);
+    const deaths=units().filter(u=>u.hp<=0&&!u.deadCommitted&&u.kind!=='environment');
     if(!deaths.length)return;
     for(const u of deaths){u.deadCommitted=true;emit('death',{target:u.id});}
     for(const dead of deaths.filter(u=>u.side==='enemy')) {
@@ -155,9 +158,11 @@ export function simulate(challenge,{trace=true}={}) {
     };
     schedule(d.next,1,tick);
   }
-  function targetsFor(caster,max,around=null) { return alive(enemies).sort((a,b)=>a.row-b.row||distance(around||caster,a)-distance(around||caster,b)||a.order-b.order).slice(0,max); }
+  function targetsFor(caster,max,around=null) { return attackTargets().sort((a,b)=>a.row-b.row||distance(around||caster,a)-distance(around||caster,b)||a.order-b.order).slice(0,max); }
   function active(u) {
-    const h=HERO_BY_ID[u.id],a=h.active,p=h.passive;let target=chooseTarget(u,enemies);if(!target)return false;
+    const h=HERO_BY_ID[u.id],a=h.active,p=h.passive;let target=chooseTarget(u,enemies);
+    const support=['self_heal_shield','lowest_hp_heal','all_ally_heal','self_and_ally_shield','self_damage_reduction','random_purify_or_shield'].includes(a.kind)||(a.kind==='shield_branch'&&totalShield(u)===0);
+    if(!target&&!support)return false;
     const direct=[]; // Captured primary effects for non-recursive AX01-B copies.
     const hit=(t,raw,canCrit=true,mult=null)=>{const value=raw*(mult??outgoing(u,'active',t));damage(u,t,value,'active',canCrit,1);direct.push({type:'damage',target:t,amount:value});};
     const healing=(t,raw,native=false)=>{const outcome=heal(u,t,raw,{original:true,nativeOverflow:native});direct.push({type:'heal',target:t,amount:raw*primarySupport('healing',t)});return outcome;};
@@ -190,7 +195,7 @@ export function simulate(challenge,{trace=true}={}) {
       case 'execute_direct_damage':target=lowest(enemies);hit(target,u.atk*a.atkCoefficient*(target.hp/target.maxHp<a.thresholdStrictLessThan?a.executeMultiplier:1));break;
       case 'single_direct_damage':hit(target,u.atk*a.atkCoefficient);break;
       case 'multi_direct_damage': {const targets=targetsFor(u,a.maxTargets,u.id==='jin'?target:null),mult=outgoing(u,'active',target);for(const t of targets)hit(t,u.atk*a.atkCoefficient,true,mult);break;}
-      case 'all_enemy_direct_damage': {const targets=alive(enemies),mult=outgoing(u,'active',target);for(const t of targets)hit(t,u.atk*a.atkCoefficient,true,mult);break;}
+      case 'all_enemy_direct_damage': {const targets=attackTargets(),mult=outgoing(u,'active',target);for(const t of targets)hit(t,u.atk*a.atkCoefficient,true,mult);break;}
       case 'direct_and_dot': {
         const mult=outgoing(u,'active',target),stacks=u.id==='echoz'?u.dotStacks:0;u.dotStacks=0;hit(target,u.atk*(a.atkCoefficient+stacks*(p.directAtkCoefficientPerStack||0)),true,mult);addDot(u,target,a.dot,mult);break;
       }
@@ -233,10 +238,20 @@ export function simulate(challenge,{trace=true}={}) {
     for(const debt of u.debt){const due=debt.amount/debt.left;debt.amount-=due;debt.left--;counters.debtPaid+=due;receive({id:'debt',side:'enemy'},u,due,{tag:'debt',debt:true});}
     u.debt=u.debt.filter(b=>b.left>0&&b.amount>EPS);
     if(u.actionBuffCount>0&&!u.newBuffThisAction)u.actionBuffCount--;u.actions++;
-    schedule(time+u.interval,2+u.order/100,()=>heroAction(u));
+    u.nextActionAt=time+u.interval;schedule(u.nextActionAt,2+u.order/100,()=>heroAction(u));
   }
   function enemyAction(u) {
     if(u.hp<=0)return;
+    if(u.environment){
+      const env=u.environment,team=alive(heroes).sort((a,b)=>a.slot-b.slot);if(!team.length)return;
+      const targets=env.targetMode==='all'?team:env.targetMode==='rotate2'?Array.from({length:Math.min(2,team.length)},(_,i)=>team[(u.actions+i)%team.length]):[chooseTarget(u,team)];
+      emit('environment_attack',{source:u.id,targets:targets.map(t=>t.id),action:u.actions+1});
+      for(const target of targets)damage(u,target,u.atk*(env.damageMultiplier??1),'environment');
+      commitDeaths();
+      // All target damage resolves before one decay, including blocked attacks.
+      u.actions++;u.hp=Math.max(0,u.hp-env.decayPerAction);emit('environment_decay',{target:u.id,remaining:u.hp,amount:env.decayPerAction});
+      if(u.hp>0)scheduleWave(time+env.interval,3+u.order/100,()=>enemyAction(u));return;
+    }
     let target=chooseTarget(u,heroes);if(!target)return;
     const skill=u.skill&&u.cdRemaining<=EPS?u.skill:null;
     const aoe=skill?.id==='sweep';
@@ -245,46 +260,55 @@ export function simulate(challenge,{trace=true}={}) {
       if(guard&&target.hp/target.maxHp<p.allyThresholdStrictLessThan){guard.icd.redirect=time+p.internalCooldownSeconds;target=guard;emit('redirect',{source:guard.id});}
     }
     let attack=u.atk;
-    if(u===boss&&mechanic?.id==='vending'&&time>=mechanic.overloadStart&&time<mechanic.overloadEnd)attack*=1+mechanic.overloadAttackBonus;
+    if(u===boss&&mechanic?.id==='vending'&&localTime()>=mechanic.overloadStart&&localTime()<mechanic.overloadEnd)attack*=1+mechanic.overloadAttackBonus;
     if(skill){u.cdRemaining=skill.cd;if(skill.id==='ward')addShield(u,u.maxHp*(skill.shieldHpFraction||.06),'enemy:shield',skill.duration||5);else for(const t of aoe?alive(heroes):[target])damage(u,t,attack*skill.multiplier,'active');}
     else damage(u,target,attack,'basic');
     let interval=u.interval;
-    if(u===boss&&mechanic?.id==='clock')interval=time%mechanic.period<mechanic.fastStartsAt?mechanic.slowInterval:mechanic.fastInterval;
-    if(u===boss&&mechanic?.id==='cabinet')interval=Math.floor(time/mechanic.phaseSeconds)%2===0?mechanic.lightInterval:mechanic.heavyInterval;
-    schedule(time+interval,3+u.order/100,()=>enemyAction(u));
+    if(u===boss&&mechanic?.id==='clock')interval=localTime()%mechanic.period<mechanic.fastStartsAt?mechanic.slowInterval:mechanic.fastInterval;
+    if(u===boss&&mechanic?.id==='cabinet')interval=Math.floor(localTime()/mechanic.phaseSeconds)%2===0?mechanic.lightInterval:mechanic.heavyInterval;
+    scheduleWave(time+interval,3+u.order/100,()=>enemyAction(u));
   }
   function summon() {
     if(!boss||boss.hp<=0)return;
     for(let i=0;i<mechanic.summonCountEach;i++) {
       if(alive(enemies).filter(e=>e!==boss).length>=mechanic.maxAliveAdds)break;
-      const cells=[];for(let y=0;y<4;y++)for(const x of [0,3,1,2])cells.push({x,y});
+      const cells=task.summonTemplate?.allowedSpawnCellsInOrder||[];if(!cells.length)for(let y=0;y<4;y++)for(const x of [0,3,1,2])cells.push({x,y});
       const cell=cells.find(p=>!alive(enemies).some(e=>p.x>=e.gridX&&p.x<e.gridX+e.w&&p.y>=e.gridY&&p.y<e.gridY+e.h));if(!cell)break;
-      const order=enemies.length,u=stateUnit({id:`add-${order}`,side:'enemy',name:mechanic.id==='printer'?'纸片人':mechanic.id==='mirror'?'镜像':'候车影',maxHp:mechanic.summonHp,atk:mechanic.summonAtk,def:0,interval:3,cdRemaining:Infinity,kind:'normal',row:cell.y,x:cell.x,y:-1-cell.y,gridX:cell.x,gridY:cell.y,w:1,h:1,order});enemies.push(u);emit('summon',{unit:publicUnit(u)});schedule(time+1,3+order/100,()=>enemyAction(u));
+      const order=enemies.length,u=stateUnit({id:`${task.id}-W${waveIndex+1}-S${order}`,side:'enemy',name:task.summonTemplate?.name||(mechanic.id==='printer'?'纸片人':mechanic.id==='mirror'?'镜像':'候车影'),maxHp:mechanic.summonHp,atk:mechanic.summonAtk,def:task.summonTemplate?.def||0,interval:task.summonTemplate?.interval||3,cdRemaining:Infinity,kind:'normal',row:cell.y,x:cell.x,y:-1-cell.y,gridX:cell.x,gridY:cell.y,w:1,h:1,order});enemies.push(u);emit('summon',{unit:publicUnit(u)});scheduleWave(time+(task.summonTemplate?.firstActionDelaySeconds??1),3+order/100,()=>enemyAction(u));
     }
   }
-  function periodic(period,fn,start=period,end=90) {for(let at=start;at<=end;at+=period)schedule(at,1,()=>{if(boss?.hp>0)fn();});}
+  function periodic(period,fn,start=period,end=90) {for(let at=start;at<=Math.min(end,BATTLE_LIMIT-waveStartedAt);at+=period)scheduleWave(waveStartedAt+at,1,()=>{if(boss?.hp>0)fn();});}
   function installMechanics() {
     if(!mechanic)return;
-    for(const at of mechanic.summonTimes||[])schedule(at,1,summon);
+    for(const at of mechanic.summonTimes||[])scheduleWave(waveStartedAt+at,1,summon);
     if(mechanic.id==='rain'){
       periodic(mechanic.period,()=>{emit('mechanic',{text:'室内降雨'});for(const h of alive(heroes))damage(boss,h,boss.atk*mechanic.rainAtkMultiplier,'environment');});
       periodic(mechanic.shieldPeriod,()=>addShield(boss,boss.maxHp*mechanic.shieldHpFraction,'rain',mechanic.shieldDuration));
     }
     if(mechanic.id==='vending')periodic(mechanic.period,()=>{let drained=0;for(const h of alive(heroes))drained+=receive(boss,h,h.maxHp*mechanic.drainTargetMaxHpFraction,{tag:'drain',bypass:true}).hp;heal(boss,boss,Math.min(drained*mechanic.healFromActualDrain,boss.maxHp*mechanic.healPerTriggerBossHpCap));emit('mechanic',{text:'体温汲取'});},mechanic.period,mechanic.period*mechanic.maxTriggers);
-    if(mechanic.id==='theatre')for(let at=mechanic.period;at<=BATTLE_LIMIT;at+=mechanic.period){schedule(at-mechanic.warningSeconds,1,()=>{if(boss.hp>0){boss.theatreStart=time;boss.theatreDamage=0;emit('mechanic',{text:`谢幕蓄势：${mechanic.warningSeconds}秒内削减${mechanic.checkBossHpFraction*100}%生命可降低群伤`});}});schedule(at,1,()=>{if(boss.hp>0){const mult=mechanic.aoeAttackMultiplier*(boss.theatreDamage>=boss.maxHp*mechanic.checkBossHpFraction?mechanic.passedDamageFactor:1);for(const h of alive(heroes))damage(boss,h,boss.atk*mult,'environment');boss.theatreStart=Infinity;}});}
-    if(mechanic.id==='phone')periodic(mechanic.period,()=>{interferenceUntil=time+mechanic.duration;emit('mechanic',{text:`技能干扰：${mechanic.duration}秒内冷却流逝减慢`});schedule(time+mechanic.duration,1,()=>{});});
+    if(mechanic.id==='theatre')for(let at=mechanic.period;at<=BATTLE_LIMIT-waveStartedAt;at+=mechanic.period){scheduleWave(waveStartedAt+at-mechanic.warningSeconds,1,()=>{if(boss.hp>0){boss.theatreStart=time;boss.theatreDamage=0;emit('mechanic',{text:`谢幕蓄势：${mechanic.warningSeconds}秒内削减${mechanic.checkBossHpFraction*100}%生命可降低群伤`});}});scheduleWave(waveStartedAt+at,1,()=>{if(boss.hp>0){const mult=mechanic.aoeAttackMultiplier*(boss.theatreDamage>=boss.maxHp*mechanic.checkBossHpFraction?mechanic.passedDamageFactor:1);for(const h of alive(heroes))damage(boss,h,boss.atk*mult,'environment');boss.theatreStart=Infinity;}});}
+    if(mechanic.id==='phone')periodic(mechanic.period,()=>{interferenceUntil=time+mechanic.duration;interferenceSpeed=mechanic.skillCooldownProgressSpeed;emit('mechanic',{text:`技能干扰：${mechanic.duration}秒内冷却流逝减慢`});schedule(time+mechanic.duration,1,()=>{});});
     if(mechanic.id==='terminal')periodic(mechanic.sweepPeriod,()=>{for(const h of alive(heroes))damage(boss,h,boss.atk*mechanic.sweepAttackMultiplier,'environment');});
     if(mechanic.id==='clock')periodic(mechanic.period,()=>emit('mechanic',{text:'报时：快速行动即将开始'}),Math.max(0,mechanic.fastStartsAt-2));
-    if(mechanic.id==='cabinet')periodic(mechanic.phaseSeconds,()=>emit('mechanic',{text:Math.floor(time/mechanic.phaseSeconds)%2?'重相：减伤提高':'轻相：速度提高，承伤增加'}));
+    if(mechanic.id==='cabinet')periodic(mechanic.phaseSeconds,()=>emit('mechanic',{text:Math.floor(localTime()/mechanic.phaseSeconds)%2?'重相：减伤提高':'轻相：速度提高，承伤增加'}));
   }
-  function publicUnit(u){return {id:u.id,name:u.name,side:u.side,maxHp:u.maxHp,atk:u.atk,def:u.def,row:u.row,slot:u.slot,x:u.gridX??u.x,y:u.gridY??u.row,w:u.w,h:u.h,kind:u.kind};}
+  function publicUnit(u){return {id:u.id,name:u.name,side:u.side,maxHp:u.maxHp,atk:u.atk,def:u.def,row:u.row,slot:u.slot,x:u.gridX??u.x,y:u.gridY??u.row,w:u.w,h:u.h,kind:u.kind,attackable:u.attackable!==false,environment:u.environment?clone(u.environment):null};}
+  function enterWave(index){
+    for(const u of enemies)for(const s of u.shields){counters.shieldExpired+=s.amount;emit('shield_expired',{target:u.id,source:s.source,amount:s.amount});}
+    waveIndex=index;waveStartedAt=time;waveToken++;const wave=waves[index];mechanic=wave.mechanic||null;
+    enemies=wave.enemies.map((e,i)=>stateUnit({id:e.id,side:'enemy',name:e.name,maxHp:e.hp,atk:e.atk,def:e.def,interval:e.interval,skill:e.skill,environment:e.environment,attackable:e.attackable,targetable:e.targetable,mustDefeat:e.mustDefeat,kind:e.type,row:e.y,x:e.x+(e.width-1)/2,y:-1-e.y-(e.height-1)/2,gridX:e.x,gridY:e.y,w:e.width,h:e.height,order:i,cdRemaining:e.firstSkillDelay??e.skill?.cd??Infinity}));
+    boss=enemies.find(e=>e.kind==='boss');
+    for(let i=0;i<enemies.length;i++){const e=enemies[i],spec=wave.enemies[i];scheduleWave(time+(spec.environment?.firstActionDelay??spec.firstActionDelay??1+.19*i),3+e.order/100,()=>enemyAction(e));}
+    installMechanics();
+    emit('wave',{index:index+1,total:waves.length,units:enemies.map(publicUnit),heroes:heroes.map(h=>({id:h.id,hp:h.hp,shield:totalShield(h),cooldown:h.cdRemaining,nextActionAt:h.nextActionAt,actions:h.actions,basics:h.basics,casts:h.casts,clutch:!!h.flags.clutch,shields:clone(h.shields)}))});
+  }
+  enterWave(0);
   const initial=units().map(publicUnit);
   for(const h of heroes){
     for(const b of effect('opening_shield'))addShield(h,h.maxHp*b.parameters.max_hp_ratio,b.id,b.parameters.duration_s);
     for(const b of effect('periodic_shield'))for(let at=0;at<=90;at+=b.parameters.interval_s)schedule(at,1,()=>addShield(h,h.maxHp*b.parameters.max_hp_ratio,b.id,b.parameters.duration_s));
-    schedule(.7+.17*h.order,2+h.order/100,()=>heroAction(h));
+    h.nextActionAt=.7+.17*h.order;schedule(h.nextActionAt,2+h.order/100,()=>heroAction(h));
   }
-  for(const e of enemies)schedule(1+.19*e.order,3+e.order/100,()=>enemyAction(e));installMechanics();
   emit('frame',{units:snapshot()});
   while(queue.length&&!ended) {
     queue.sort((a,b)=>a.at-b.at||a.priority-b.priority||a.sequence-b.sequence);const event=queue.shift();time=event.at;if(time>90+EPS)break;
@@ -292,11 +316,16 @@ export function simulate(challenge,{trace=true}={}) {
     for(const u of units()){
       for(const s of u.shields)if(s.until<=time+EPS){counters.shieldExpired+=s.amount;emit('shield_expired',{target:u.id,source:s.source,amount:s.amount});}
       u.shields=u.shields.filter(s=>s.until>time+EPS&&s.amount>EPS);
-      u.cdRemaining=Math.max(0,u.cdRemaining-delta+(u.side==='hero'?slowed*(1-(mechanic?.skillCooldownProgressSpeed??1)):0));
+      u.cdRemaining=Math.max(0,u.cdRemaining-delta+(u.side==='hero'?slowed*(1-interferenceSpeed):0));
     }
     previousTime=time;event.fn();commitDeaths();emit('frame',{units:snapshot()});
-    if(!alive(heroes).length||!alive(enemies).length)ended=true;
+    if(!alive(heroes).length)ended=true;
+    else if(!alive(enemies).some(e=>e.mustDefeat!==false)){
+      completedWaves++;
+      if(completedWaves===waves.length)ended=true;
+      else {enterWave(waveIndex+1);emit('frame',{units:snapshot()});}
+    }
   }
-  const outcome=alive(heroes).length&&!alive(enemies).length?'win':'loss';
-  return {outcome,duration:ended?time:BATTLE_LIMIT,initial,events,final:snapshot(),counters};
+  const outcome=alive(heroes).length&&completedWaves===waves.length?'win':'loss';
+  return {outcome,duration:ended?time:BATTLE_LIMIT,waveCount:waves.length,completedWaves,initial,events,final:snapshot(),counters};
 }

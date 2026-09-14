@@ -1,6 +1,6 @@
 import { DATA } from './data.js';
 export { DATA };
-export const RULE_VERSION = 'agency-baseline-2';
+export const RULE_VERSION = 'agency-three-wave-3';
 export const SCHEMA = 2;
 export const BATTLE_LIMIT = 90;
 export const MAX_INVENTORY = 600;

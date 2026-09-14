@@ -9,6 +9,43 @@ export const itemName = item => item.legacyName || TEMPLATE_BY_ID[item.templateI
 export const itemStatsText = item => Object.entries(baseItemStats(item)).filter(([,v]) => v).map(([key,value]) => `${AFFIX_NAMES[key]} ${num(value)}`).join(' · ');
 export const slotIcons = ['⚔','◈','♙','⌑','♜','Ⅱ','═','♧','⌞','○','○','♢','✧','✦','◩'];
 
+export function skillSummary(hero) {
+  const a=hero.active,damage=percent(a.atkCoefficient)+'攻击';
+  switch(a.kind){
+    case 'single_direct_damage': return `对目标造成${damage}伤害。`;
+    case 'multi_direct_damage': return `对最多${a.maxTargets}名敌人各造成${damage}伤害。`;
+    case 'all_enemy_direct_damage': return `对全体敌人各造成${damage}伤害。`;
+    case 'execute_direct_damage': return `攻击生命比例最低的敌人，造成${damage}伤害；目标生命低于${percent(a.thresholdStrictLessThan)}时，本次伤害+${percent(a.executeMultiplier-1)}。`;
+    case 'self_heal_shield': return `恢复${percent(a.healMaxHpFraction)}自身最大生命，获得${percent(a.shieldMaxHpFraction)}最大生命护盾，持续${a.shieldDurationSeconds}秒。`;
+    case 'lowest_hp_heal': return `治疗生命比例最低的己方特工，恢复${damage}的生命。${hero.id==='suxiaoyao'?'满血时可按庇护条件补盾。':''}`;
+    case 'all_ally_heal': return `全队各恢复${damage}的生命。`;
+    case 'self_and_ally_shield': return `为自己及生命比例最低的另一名队友各提供${damage}护盾，持续${a.durationSeconds}秒。`;
+    case 'shield_branch': return `有盾：造成当前护盾${percent(a.shieldPresent.damageCoefficient)}的伤害，消耗${percent(a.shieldPresent.spendFraction)}护盾（不暴击、不受攻击加成）。无盾：获得${percent(a.shieldAbsent.maxHpFraction)}最大生命护盾，持续${a.shieldAbsent.durationSeconds}秒。`;
+    case 'self_damage_reduction': return `${a.durationSeconds}秒内减伤+${percent(a.reduction)}；不减少友方生命支付或已计算的醉伤。`;
+    case 'direct_and_dot': return `造成${damage}伤害，再每${a.dot.tickIntervalSeconds}秒造成${percent(a.dot.tickAtkCoefficient)}攻击伤害，共${a.dot.ticks}次；持续伤害不暴击。`;
+    case 'multi_dot': return `诅咒最多${a.maxTargets}名敌人，每${a.dot.tickIntervalSeconds}秒造成${percent(a.dot.tickAtkCoefficient)}攻击伤害，共${a.dot.ticks}次；不暴击。`;
+    default:return skillText(hero);
+  }
+}
+export function passiveSummary(hero){return {
+  yan:'前排受到的普攻伤害降低12%。',ling:'目标生命低于35%时，主动治疗+35%。',jin:'每三次普攻，向另一目标追加45%攻击伤害，不暴击。',
+  shuo:'连续普攻同一目标，第二次起每次伤害+6%，最多+18%；换目标或目标死亡时清空。',lan:'有护盾时，普攻伤害+20%。',
+  wudi:'每次行动后，向生命比例最高的其他队友支付最多3%最大生命（至少留1生命），实付的160%转为8秒护盾。护盾满时不支付。',
+  echoz:'持续伤害每次命中生命或护盾，下次心灵震爆多30%攻击倍率，最多三层；施放时消耗。',
+  kukalon:'队友生命低于35%、自身高于25%时，替其承受一次敌方单体攻击，冷却8秒；不拦截群伤、持续或环境伤害。',
+  asuna:'灰烬觉醒结束后两次行动，普攻和主动直接伤害+30%。',xiaocheng:'星辰坠落开始时敌人≥3名，本次伤害+25%。',
+  suxiaoyao:'主动过量治疗的60%转为6秒护盾，最多目标12%最大生命。',sacred_druid:'普攻自己的标记目标，追加35%攻击伤害，不暴击。',
+  bandebeidiwang:'诅咒目标死亡时，剩余诅咒转移给未被自己诅咒的敌人，保留次数和生效时间。',
+  lancelot:'队友阵亡后两次行动伤害+35%；最后独存时触发6秒无敌、审判就绪，后三次行动伤害+150%。独存每场一次；单人开局或同时阵亡不触发。',
+  qinglian:'敌方直接伤害的30%分摊至接下来三次自身行动结束时支付，可被护盾吸收、可致死；持续和环境伤害不分摊。',
+  makelong:'主动有效治疗的35%，在下次自身行动后回补原目标；双方任一阵亡时取消。',
+}[hero.id];}
+
+export function skillCopy(hero, passive=false){
+  const summary=passive?passiveSummary(hero):skillSummary(hero),detail=passive?passiveText(hero):skillText(hero);
+  return `<p>${esc(summary)}</p>${summary!==detail?`<details class="effect-details"><summary>效果详情</summary><p>${esc(detail)}</p></details>`:''}`;
+}
+
 export function skillText(hero) {
   const a = hero.active;
   const damage = `${num(a.atkCoefficient * 100)}%攻击`;
@@ -51,19 +88,22 @@ export function passiveText(hero) {
   }[hero.id];
 }
 
+export const roleText = h => ({tank:'守卫',offtank:'战士',healer:'治疗',single:'单体输出',aoe:'群体输出',aoe_burst:'爆发输出',aoe_all:'群体输出',aoe_dot:'持续伤害',single_clutch:'单体输出',group_healer:'群体治疗'}[h.role] || '特工');
 export function mechanicText(task) {
-  const m = task.mechanic;
-  if (!m) return '前排优先寻敌，击败全部敌人即可完成任务。';
-  return {
-    printer:'12、24、36秒各召唤一个纸片人；场上存在纸片人时，首领减伤15%。',
-    rain:'每8秒降雨攻击全队，每16秒首领获得持续4秒的6%生命护盾。',
-    clock:'每15秒为一轮，前10秒行动较慢，后5秒快速行动。',
-    mirror:'12、27、42秒各召唤两个镜像，同时最多存在四个。',
-    elevator:'生命首次降至一半时，获得12%最大生命护盾，攻击提高20%。',
-    vending:'每12秒汲取全队1.8%最大生命，最多五次；实际汲取的一半用于自疗，每次不超过首领1.5%最大生命。60–75秒攻击提高25%。',
-    theatre:'每18秒发动全体攻击；提前4秒蓄势，期间削减首领7%最大生命可使本次群伤减半。',
-    cabinet:'每10秒切换相位：轻相行动更快、承伤提高20%；重相行动较慢、减伤提高20%。',
-    phone:'每18秒干扰4秒，期间己方技能冷却流逝减半。',
-    terminal:'15、35、55秒各召唤两个候车影，同时最多四个；每20秒攻击全队。',
+  const m=task.waves?.at(-1)?.mechanic;
+  if(!m)return '连续完成三波；队伍生命、护盾和技能冷却保留。';
+  const times=m.summonTimes?.join('、');
+  const text={
+    printer:`第${times}秒各召唤${m.summonCountEach}个纸片人；仍有纸片人时首领减伤${percent(m.protectionWhileAdds)}。`,
+    rain:`每${m.period}秒降雨攻击全队，每${m.shieldPeriod}秒获得${percent(m.shieldHpFraction)}生命护盾，持续${m.shieldDuration}秒。`,
+    clock:`每${m.period}秒一轮：前${m.fastStartsAt}秒每${m.slowInterval}秒行动，后${m.fastDuration}秒每${m.fastInterval}秒行动。`,
+    mirror:`第${times}秒各召唤${m.summonCountEach}个镜像，同时最多${m.maxAliveAdds}个。`,
+    elevator:`生命首次降至${percent(m.threshold)}时，获得${percent(m.shieldHpFraction)}最大生命护盾，攻击提高${percent(m.attackBonus)}。`,
+    vending:`每${m.period}秒汲取全队${percent(m.drainTargetMaxHpFraction)}最大生命，最多${m.maxTriggers}次。实付的${percent(m.healFromActualDrain)}用于自疗，每次不超过首领${percent(m.healPerTriggerBossHpCap)}最大生命；${m.overloadStart}–${m.overloadEnd}秒攻击提高${percent(m.overloadAttackBonus)}。`,
+    theatre:`每${m.period}秒攻击全队，提前${m.warningSeconds}秒蓄势；蓄势期间削减首领${percent(m.checkBossHpFraction)}最大生命，本次群伤降至${percent(m.passedDamageFactor)}。`,
+    cabinet:`每${m.phaseSeconds}秒切换相位：轻相每${m.lightInterval}秒行动、承伤+${percent(m.lightDamageTakenBonus)}；重相每${m.heavyInterval}秒行动、减伤${percent(m.heavyReduction)}。`,
+    phone:`每${m.period}秒干扰${m.duration}秒，期间己方技能冷却流逝速度降至${percent(m.skillCooldownProgressSpeed)}。`,
+    terminal:`第${times}秒各召唤${m.summonCountEach}个候车影，同时最多${m.maxAliveAdds}个；每${m.sweepPeriod}秒攻击全队。`,
   }[m.id];
+  return '以下时间从第三波入场起计算。'+text;
 }

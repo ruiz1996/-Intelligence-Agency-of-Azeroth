@@ -92,7 +92,7 @@ export function migrateState(old,now=Date.now()) {
 }
 export function act(input,action,now=Date.now(),rng=random) {
   requireRule(action&&typeof action==='object','操作无效');if(action.type==='migrate')return {state:migrateState(input,now),result:{migrated:input.schema!==SCHEMA}};
-  requireRule(input.schema===SCHEMA,'请先升级档案，旧档将完整保留');const s=clone(input);let result={};
+  requireRule(input.schema===SCHEMA,'请先升级档案，旧档将完整保留');const s=clone(input);s.rule=RULE_VERSION;let result={};
   switch(action.type) {
     case 'claim': result=claimIdle(s,now);break;
     case 'formation': {const a=action.formation;requireRule(Array.isArray(a)&&a.length===6,'阵容应为六格');const ids=a.filter(Boolean);requireRule(ids.length>=1&&ids.length<=5&&new Set(ids).size===ids.length,'阵容需要一至五名不同特工');ids.forEach(id=>owned(s,id));s.formation=a.map(id=>id||null);break;}
