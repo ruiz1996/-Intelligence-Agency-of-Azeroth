@@ -1,4 +1,4 @@
-import {createState,act,uid} from './core.js';
+import {createState,act,uid,RULE_VERSION,DATA} from './core.js';
 const config=window.GAME_CONFIG||{};
 export const cloudReady=Boolean(config.supabaseUrl&&config.supabaseKey);
 const base=(config.supabaseUrl||'').replace(/\/$/,'');
@@ -49,7 +49,7 @@ export class GameClient{
   }
   async action(action){
     if(this.pending)throw new Error('上一次操作尚未确认，请先点击“重试同步”');
-    const request={type:'action',opId:uid(),version:this.version,action};
+    const request={type:'action',opId:uid(),version:this.version,ruleVersion:RULE_VERSION,balanceRevision:DATA.balanceRevision,action};
     localStorage.setItem(this.key,JSON.stringify(request));return this.retry();
   }
   async retry(){
@@ -61,6 +61,7 @@ export class GameClient{
         const run=()=>{
           const value=read(STORE);if(!value)throw new Error('本机存档不存在');
           if(value.receipts[body.opId])return {...value,serverTime:Date.now(),result:value.receipts[body.opId]};
+          if(body.ruleVersion!==RULE_VERSION||body.balanceRevision!==DATA.balanceRevision){const e=new Error('待重试操作属于旧规则，请刷新档案后重试');e.status=409;throw e;}
           if(value.version!==body.version){const e=new Error('其他页面已修改存档，请刷新后重新操作');e.status=409;throw e;}
           const updated=act(value.state,body.action);data={...updated,version:value.version+1,serverTime:Date.now()};
           const receipts={...value.receipts,[body.opId]:updated.result};const keys=Object.keys(receipts);for(const key of keys.slice(0,Math.max(0,keys.length-100)))delete receipts[key];
@@ -71,7 +72,9 @@ export class GameClient{
       localStorage.removeItem(this.key);return this.accept(data);
     }catch(error){
       // Network/5xx failures can have committed; retain the exact operation ID.
-      if(error.status&&error.status<500||error.name==='GameError')localStorage.removeItem(this.key);
+      // Auth may expire while retrying an operation whose response was lost.
+      // Keep that ID through re-login so an earlier commit cannot be repeated.
+      if((error.status&&error.status<500&&![401,403].includes(error.status))||error.name==='GameError')localStorage.removeItem(this.key);
       throw error;
     }
   }

@@ -1,0 +1,36 @@
+import { DATA } from './data.js';
+export { DATA };
+export const RULE_VERSION = 'agency-baseline-2';
+export const SCHEMA = 2;
+export const BATTLE_LIMIT = 90;
+export const MAX_INVENTORY = 600;
+export const SLOT_NAMES = ['主手','副手','头盔','肩部','衣服','裤子','腰带','护手','鞋子','戒指1','戒指2','项链','饰品1','饰品2','披风'];
+export const QUALITY = ['普通','优秀','稀有','史诗','传说'];
+export const AFFIX_NAMES = {atk:'攻击',hp:'生命',def:'防御',crit:'暴击率',critDamage:'暴击伤害'};
+export const HEROES = DATA.characters;
+export const HERO_BY_ID = Object.fromEntries(HEROES.map(h=>[h.id,h]));
+export const TEMPLATES = DATA.equipment.templates115;
+export const TEMPLATE_BY_ID = Object.fromEntries(TEMPLATES.map(t=>[t.id,t]));
+export const DUNGEONS = {idle:{name:'资源行动',description:'推进星球资源任务，提高无限离线收益。'},gear:{name:'装备行动',description:'收集五系列装备，强化长期收藏。'},rogue:{name:'异常收容',description:'每节点每轮选择一次强化，第五任务解锁回溯。'}};
+export const CATALOG = {idle:DATA.resourceStages,gear:DATA.equipmentTasks,rogue:DATA.containmentTasks};
+export const TASKS = Object.fromEntries(Object.entries(CATALOG).flatMap(([kind,entries])=>entries.map(t=>[t.id,{...t,kind}])));
+export const BUFFS = DATA.containmentTasks.flatMap(t=>t.rewards.choices);
+export const BUFF_BY_ID = Object.fromEntries(BUFFS.map(b=>[b.id,b]));
+export const TALENTS = DATA.permanentTalents;
+export const TALENT_BY_ID = Object.fromEntries(TALENTS.map(t=>[t.id,t]));
+export function templateSlots(t) {
+  if(t.group==='weapon') return [0];
+  if(t.slot.startsWith('副手')) return [1];
+  if(t.slot.startsWith('戒指')) return [9,10];
+  if(t.slot.startsWith('饰品')) return [12,13];
+  return [SLOT_NAMES.indexOf(t.slot)];
+}
+export function talentBonus(s,effect) { return TALENTS.filter(t=>t.effect===effect).reduce((v,t)=>v+Number(s.talents?.[t.id]?.level||0)*t.per_level,0); }
+export function chosenBuffs(s) {
+  return (s.buffs||[]).map(id=>{
+    const b=BUFF_BY_ID[id]; if(!b) return null;
+    const parameters={...b.parameters};
+    if(s.enhancedBuff===id) for(const rule of DATA.rogueEnhanceWhitelist.filter(w=>w.choice_id===id)) parameters[rule.field]=rule.to;
+    return {...b,parameters};
+  }).filter(Boolean);
+}

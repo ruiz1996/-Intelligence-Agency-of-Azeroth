@@ -1,232 +1,163 @@
-// Shared, dependency-free rules. Cloud actions run here on the server;
-// browser combat deliberately trusts victory reports for this private demo.
-export const RULE_VERSION = 1;
-export const MAX_STAGE = 12;
-export const MAX_INVENTORY = 240;
-export const BATTLE_LIMIT = 90;
-export const SLOT_NAMES = ['主手','副手','头盔','肩部','衣服','裤子','腰带','护手','鞋子','戒指1','戒指2','项链','饰品1','饰品2','披风'];
-export const QUALITY = ['普通','优秀','稀有','史诗','传说'];
-export const HEROES = [
-  { id:'yan', name:'岩灯', mark:'岩', role:'守护', color:'#d5ab67', hp:620, atk:38, def:30, interval:2.8, cd:10, skill:'不灭壁垒', detail:'为自己恢复 18% 最大生命，并获得护盾。', kind:'guard' },
-  { id:'ling', name:'铃弦', mark:'铃', role:'治疗', color:'#73cbb0', hp:380, atk:37, def:15, interval:2.7, cd:8, skill:'回春之歌', detail:'治疗生命比例最低的队友，恢复攻击的 280%。', kind:'heal' },
-  { id:'jin', name:'烬羽', mark:'烬', role:'群攻', color:'#ed8b72', hp:370, atk:57, def:12, interval:2.3, cd:9, skill:'余烬风暴', detail:'对所有敌人造成攻击的 125% 伤害。', kind:'aoe' },
-  { id:'shuo', name:'朔影', mark:'朔', role:'收割', color:'#ad9bec', hp:390, atk:67, def:13, interval:2.1, cd:8, skill:'月下追猎', detail:'攻击生命比例最低的敌人，造成攻击的 260% 伤害。', kind:'execute' },
-  { id:'lan', name:'岚盾', mark:'岚', role:'援护', color:'#80b9df', hp:540, atk:41, def:25, interval:2.6, cd:11, skill:'归途之盾', detail:'为全队提供相当于自身攻击 160% 的护盾。', kind:'shield' },
-];
-export const BUFFS = [
-  {id:'fury',name:'余火',text:'全队攻击 +12%',stat:'atk',value:.12},
-  {id:'vigor',name:'长青',text:'全队生命 +15%',stat:'hp',value:.15},
-  {id:'stone',name:'磐石',text:'全队防御 +20%',stat:'def',value:.20},
-  {id:'focus',name:'洞悉',text:'全队暴击率 +8%',stat:'crit',value:.08},
-  {id:'edge',name:'锋芒',text:'全队暴击伤害 +20%',stat:'critDamage',value:.20},
-  {id:'tempo',name:'疾行',text:'全队普攻间隔缩短 8%',stat:'haste',value:.08},
-];
-export const AFFIX_NAMES = {atk:'攻击',hp:'生命',def:'防御',crit:'暴击率',critDamage:'暴击伤害'};
-export const DUNGEONS = {
-  idle:{name:'余火远征',label:'挂机收益',description:'推进关卡，提高金币和招募点的挂机产速。',symbol:'I'},
-  gear:{name:'遗落锻炉',label:'装备副本',description:'寻找更高品质、更合适词条的装备。',symbol:'II'},
-  rogue:{name:'回响秘境',label:'肉鸽强化',description:'首次通过本轮节点后，选择一份全队强化。',symbol:'III'},
-};
-export class GameError extends Error {constructor(message){super(message);this.name='GameError';}}
-const requireRule = (test, message) => { if (!test) throw new GameError(message); };
-export const clone = value => structuredClone(value);
-export function random() { const n = new Uint32Array(1); crypto.getRandomValues(n); return n[0] / 4294967296; }
-export const uid = () => crypto.randomUUID();
-const pick = (arr,rng) => arr[Math.floor(rng()*arr.length)];
-const integer = (n,min,max) => Number.isInteger(n) && n>=min && n<=max;
-export function lootOdds(stage) {
-  return stage>=9 ? [.05,.15,.35,.35,.10] : stage>=5 ? [.25,.35,.25,.13,.02] : [.55,.30,.12,.03,0];
-}
-export function makeItem(stage=1,rng=random,slot=null,forcedQuality=null) {
-  const odds=lootOdds(stage); let q=forcedQuality;
-  if(q===null){let n=rng();q=4;for(let i=0;i<odds.length;i++){n-=odds[i];if(n<0){q=i;break;}}}
-  slot=slot??Math.floor(rng()*15);
-  const tier=1+Math.floor((stage-1)/4);
-  const pool=slot===0 ? ['atk','crit','critDamage','hp'] : slot>=9&&slot<=13 ? ['atk','crit','critDamage','hp','def'] : ['hp','def','atk','critDamage'];
-  const affixes=[];
-  for(let i=0;i<q;i++){
-    const stat=pool.splice(Math.floor(rng()*pool.length),1)[0];
-    const base=stat==='crit'?.01:stat==='critDamage'?.04:.02;
-    const value=Math.round((base*tier+base*rng()*2)*1000)/1000;
-    affixes.push({stat,value});
-  }
-  const twoHand=slot===0&&rng()<.28;
-  return {id:uid(),slot,quality:q,level:1,tier,affixes,twoHand,setId:null,invested:0,name:twoHand?'旅誓·双手刃':`${['旧旅','青纹','星铸','暮辉','永昼'][q]}·${SLOT_NAMES[slot]}`};
-}
+import { DATA, RULE_VERSION, SCHEMA, HEROES, HERO_BY_ID, TASKS, CATALOG, TEMPLATE_BY_ID, MAX_INVENTORY, BUFF_BY_ID, TALENTS, TALENT_BY_ID, templateSlots, talentBonus, chosenBuffs } from './catalog.js';
+import { GameError, requireRule, clone, uid, random, weighted, natural, SCALE, decimalUnits, walletUnits, credit, spend, ceilDiv } from './primitives.js';
+import { makeItem, canEquip, upgradeCost, rollEquipment, salvageValue } from './equipment.js';
+import { heroStats } from './stats.js';
+export * from './catalog.js';
+export * from './primitives.js';
+export * from './equipment.js';
+export * from './stats.js';
+export { simulate, chooseTarget } from './combat.js';
+const log=(s,text,now)=>{s.history.unshift({at:now,text});s.history=s.history.slice(0,30);};
 export function createState(now=Date.now()) {
-  const s={schema:1,cycle:1,rebirths:0,gold:1600,recruit:500,lastIdleAt:now,idleCarry:{gold:0,recruit:0},
+  const s={schema:SCHEMA,rule:RULE_VERSION,cycle:1,rebirths:0,wallet:{gold:decimalUnits(1600).toString(),recruit:decimalUnits(500).toString()},lastIdleAt:now,
     heroes:Object.fromEntries(HEROES.map((h,i)=>[h.id,{owned:i<3,star:1,shards:0}])),
     formation:['yan',null,null,'ling','jin',null],items:[],equipment:Object.fromEntries(HEROES.map(h=>[h.id,Array(15).fill(null)])),
-    progress:{idle:0,gear:0,rogue:0},firsts:[],buffs:[],claimed:[],pendingBuff:null,challenge:null,history:[]};
-  for(const hero of HEROES.slice(0,3))for(const slot of [0,4]){
-    const item=makeItem(1,()=>.5,slot,1);s.items.push(item);s.equipment[hero.id][slot]=item.id;
+    progress:{idle:0,gear:0,rogue:0},firsts:[],runClears:[],historyContribution:[],pendingHistoryContribution:[],buffs:[],enhancedBuff:null,
+    pendingBuff:null,pendingEquipment:[],challenge:null,history:[],points:'0',pointRemainder:0,talents:{},focus:'main_hand',migrations:{}};
+  for(const spec of DATA.initial.equipment) {
+    const hero=HEROES.find(h=>h.name===spec.character),template=DATA.equipment.templates115.find(t=>t.tier===1&&t.slot===spec.template);
+    const item=makeItem(template.id,0);s.items.push(item);s.equipment[hero.id][templateSlots(template)[0]]=item.id;
   }
   return s;
 }
-export function idleRates(s){return {gold:12+s.progress.idle*4,recruit:1+Math.floor(s.progress.idle/3)*.5};}
-export function idlePreview(s,now=Date.now()){
-  const minutes=Math.max(0,Math.min(8*60,(now-s.lastIdleAt)/60000));const rate=idleRates(s);
-  const gold=minutes*rate.gold+(s.idleCarry?.gold||0),recruit=minutes*rate.recruit+(s.idleCarry?.recruit||0);
-  return {gold:Math.floor(gold+1e-9),recruit:Math.floor(recruit+1e-9),minutes,goldExact:gold,recruitExact:recruit};
+export function idleRates(s) {
+  const r=CATALOG.idle[s.progress.idle-1]?.rewards;
+  return {gold:(r?.idleGoldPerMinute??20)*(1+talentBonus(s,'idle_gold_pct')),recruit:(r?.idleRecruitPerMinute??.5)*(1+talentBonus(s,'idle_recruit_pct'))};
 }
-function claimIdle(s,now){const reward=idlePreview(s,now);s.gold+=reward.gold;s.recruit+=reward.recruit;s.idleCarry={gold:Math.max(0,reward.goldExact-reward.gold),recruit:Math.max(0,reward.recruitExact-reward.recruit)};s.lastIdleAt=now;return {gold:reward.gold,recruit:reward.recruit};}
-export function baseItemStats(item){
-  const scale=(1+(item.level-1)*.24)*(1+item.quality*.06);
-  const slot=item.slot;
-  if(slot===0)return {atk:Math.round((item.twoHand?19:12)*scale)};
-  if(slot===1)return {hp:Math.round(24*scale),def:Math.round(4*scale)};
-  if(slot>=9&&slot<=13)return {atk:Math.round(4*scale),hp:Math.round(12*scale)};
-  return {hp:Math.round(24*scale),def:Math.round(3*scale)};
+export function idlePreview(s,now=Date.now()) {
+  const elapsed=Math.max(0,Math.trunc(now)-s.lastIdleAt);requireRule(Number.isSafeInteger(elapsed),'时间超出范围');
+  const r=CATALOG.idle[s.progress.idle-1]?.rewards;
+  const goldRate=BigInt(Math.round((r?.idleGoldPerMinute??20)*100000)),recruitRate=BigInt(Math.round((r?.idleRecruitPerMinute??.5)*100000));
+  return {elapsed,gold:(goldRate*BigInt(100+Math.round(talentBonus(s,'idle_gold_pct')*100))*BigInt(elapsed)).toString(),recruit:(recruitRate*BigInt(100+Math.round(talentBonus(s,'idle_recruit_pct')*100))*BigInt(elapsed)).toString()};
 }
-export function heroStats(s,id){
-  const hero=HEROES.find(h=>h.id===id);const record=s.heroes[id];
-  const mult=1+(record.star-1)*.16;
-  const result={hp:hero.hp*mult,atk:hero.atk*mult,def:hero.def*mult,crit:.05,critDamage:1.5,haste:0};
-  const bonus={hp:0,atk:0,def:0,crit:0,critDamage:0,haste:0};
-  for(const itemId of s.equipment[id]){
-    const item=s.items.find(i=>i.id===itemId);if(!item)continue;
-    for(const [stat,v]of Object.entries(baseItemStats(item)))result[stat]+=v;
-    for(const a of item.affixes)bonus[a.stat]+=a.value;
+function claimIdle(s,now) {
+  const reward=idlePreview(s,now);for(const key of ['gold','recruit'])s.wallet[key]=(walletUnits(s,key)+BigInt(reward[key])).toString();
+  s.lastIdleAt=Math.max(s.lastIdleAt,Math.trunc(now));return reward;
+}
+export function pointCost(id,level) {
+  const t=TALENT_BY_ID[id];requireRule(t,'加点节点不存在');const l=natural(level,1n);
+  if(t.max_level!==null){requireRule(l<=BigInt(t.max_level),'已达该功能上限');return BigInt(t.costs[Number(l)-1]);}
+  return ceilDiv(l*l+4n*l+16n,2n);
+}
+function totalPointCost(id,level) {
+  const l=natural(level),t=TALENT_BY_ID[id];requireRule(t,'加点节点不存在');
+  if(t.max_level!==null){requireRule(l<=BigInt(t.max_level),'已达该功能上限');return t.costs.slice(0,Number(l)).reduce((n,c)=>n+BigInt(c),0n);}
+  return (l*(l+1n)*(2n*l+1n)/6n+2n*l*(l+1n)+16n*l+(l+1n)/2n)/2n;
+}
+export function rebirthPreview(s) {
+  const base=s.runClears.reduce((n,id)=>n+TASKS[id].rebirthContributionSubunits,0),extra=s.pendingHistoryContribution.reduce((n,id)=>n+TASKS[id].rebirthContributionSubunits/4,0),total=base+extra+s.pointRemainder;
+  return {eligible:s.runClears.includes('AX-05')&&!s.pendingBuff&&!s.challenge&&s.pendingEquipment.length===0,base,extra,points:String(Math.floor(total/240)),remainder:total%240};
+}
+export function allocationPreview(s,allocation=null) {
+  const payout=rebirthPreview(s),oldPaid=Object.values(s.talents).reduce((n,t)=>n+BigInt(t.paid),0n),budget=BigInt(s.points)+BigInt(payout.points)+oldPaid;
+  const next=allocation??Object.fromEntries(Object.entries(s.talents).map(([id,t])=>[id,t.level]));requireRule(next&&typeof next==='object'&&!Array.isArray(next),'加点方案无效');
+  let spent=0n;const talents={};
+  for(const [id,level]of Object.entries(next)) {
+    const l=natural(level);requireRule(TALENT_BY_ID[id],'加点节点不存在');if(!l)continue;
+    const previous=s.talents[id],oldLevel=natural(previous?.level||0);
+    const paid=previous&&l>=oldLevel?BigInt(previous.paid)+totalPointCost(id,l)-totalPointCost(id,oldLevel):totalPointCost(id,l);
+    spent+=paid;talents[id]={level:l.toString(),paid:paid.toString()};
   }
-  for(const id of s.buffs){const b=BUFFS.find(b=>b.id===id);bonus[b.stat]+=b.value;}
-  const bond=s.formation.includes('yan')&&s.formation.includes('ling');
-  if(bond)bonus.hp+=.08;
-  const permanent=s.rebirths*.05;
-  for(const key of ['hp','atk','def'])result[key]=Math.round(result[key]*(1+bonus[key]+permanent));
-  result.crit=Math.min(.75,result.crit+bonus.crit);result.critDamage=Math.min(3,result.critDamage+bonus.critDamage);result.haste=Math.min(.5,bonus.haste);
-  return result;
+  requireRule(spent<=budget,'下一轮加点超过可用回溯点');return {talents,budget:budget.toString(),spent:spent.toString(),remaining:(budget-spent).toString()};
 }
-export function teamPower(s){return s.formation.filter(Boolean).reduce((sum,id)=>{const n=heroStats(s,id);return sum+Math.round(n.hp/5+n.atk*3+n.def*2);},0);}
-export function upgradeCost(item){return Math.round((16+item.level*7)*(1+item.quality*.2));}
-export function starCost(hero){return hero.star*20;}
-function log(s,text,now){s.history.unshift({text,at:now});s.history=s.history.slice(0,30);}
-function getItem(s,id){const item=s.items.find(i=>i.id===id);requireRule(item,'装备不存在');return item;}
-function heroOwned(s,id){requireRule(s.heroes[id]?.owned,'尚未拥有该角色');}
-function detach(s,itemId){for(const row of Object.values(s.equipment))for(let i=0;i<row.length;i++)if(row[i]===itemId)row[i]=null;}
-export function act(input,action,now=Date.now(),rng=random){
-  const s=clone(input);requireRule(s.schema===1,'存档版本不兼容');requireRule(action&&typeof action.type==='string','操作无效');let result={};
-  switch(action.type){
-    case 'claim': result=claimIdle(s,now);log(s,`领取挂机：${result.gold} 金币、${result.recruit} 招募点`,now);break;
-    case 'formation':{
-      const f=action.slots;requireRule(Array.isArray(f)&&f.length===6,'阵容需要 6 个位置');
-      const ids=f.filter(v=>v!==null);requireRule(ids.length>=1&&ids.length<=5,'上场人数必须为 1–5 人');
-      requireRule(new Set(ids).size===ids.length,'同一角色不能重复上场');ids.forEach(id=>heroOwned(s,id));s.formation=f;break;
+function grantHero(s,id) { const h=s.heroes[id];if(h.owned){h.shards+=10;return {hero:id,shards:10};}h.owned=true;h.star=1;return {hero:id,new:true}; }
+function space(s,count=1) { requireRule(s.items.length+s.pendingEquipment.length+count<=MAX_INVENTORY,'背包空间不足，请先分解未穿戴且未锁定的装备'); }
+function owned(s,id) { requireRule(HERO_BY_ID[id]&&s.heroes[id].owned,'未拥有该特工');return s.heroes[id]; }
+function itemById(s,id) { const item=s.items.find(i=>i.id===id);requireRule(item,'装备不存在');return item; }
+export function migrateState(old,now=Date.now()) {
+  if(old.schema===SCHEMA)return clone(old);requireRule(old.schema===1,'档案版本不受支持，原档已保留');
+  const s=createState(now),report=[];s.items=[];for(const id in s.equipment)s.equipment[id].fill(null);
+  s.migrations={baseline2:{at:now,snapshot:clone(old),report},rebirth_points_v1:true};s.cycle=old.cycle||1;s.rebirths=Number.isSafeInteger(old.rebirths)&&old.rebirths>=0?old.rebirths:0;
+  if(!Number.isSafeInteger(old.rebirths)||old.rebirths<0)report.push('旧重生次数缺失或无效，保留原快照待核对，未推算补点。');
+  s.points=(48n*BigInt(s.rebirths)).toString();s.wallet.gold=decimalUnits(old.gold||0).toString();s.wallet.recruit=decimalUnits(old.recruit||0).toString();
+  const minutes=Math.max(0,Math.min(480,(now-(old.lastIdleAt??now))/60000));
+  for(const [key,rate]of [['gold',12+(old.progress?.idle||0)*4],['recruit',1+Math.floor((old.progress?.idle||0)/3)*.5]]){
+    const value=minutes*rate+(old.idleCarry?.[key]||0);s.wallet[key]=(walletUnits(s,key)+decimalUnits(value.toFixed(10))).toString();
+  }
+  for(const h of HEROES)if(old.heroes?.[h.id])s.heroes[h.id]=clone(old.heroes[h.id]);
+  s.formation=Array.from({length:6},(_,i)=>old.formation?.[i]&&s.heroes[old.formation[i]]?.owned?old.formation[i]:null);if(!s.formation.some(Boolean))s.formation[0]='yan';
+  const slots=[0,8,10,11,12,13,14,15,16,17,18,19,20,21,22];
+  for(const item of old.items||[]) {
+    const owner=Object.keys(old.equipment||{}).find(id=>(old.equipment[id]||[]).includes(item.id));let templateIndex=slots[item.slot]??0;
+    if(item.slot===0){const type=item.twoHand?'双手剑':(HERO_BY_ID[owner]?.weapons.main[0]||'单手剑');templateIndex=DATA.equipment.baseTemplates.find(t=>t.slot===type)?.id??0;}
+    const next=makeItem(`G1-T${String(templateIndex).padStart(2,'0')}`,Math.max(0,Math.min(4,item.quality||0)),()=>.5),scale=(1+(item.level-1)*.24)*(1+item.quality*.06);
+    const legacyFlat=item.slot===0?{atk:Math.round((item.twoHand?19:12)*scale)}:item.slot===1?{hp:Math.round(24*scale),def:Math.round(4*scale)}:item.slot>=9&&item.slot<=13?{atk:Math.round(4*scale),hp:Math.round(12*scale)}:{hp:Math.round(24*scale),def:Math.round(3*scale)};
+    Object.assign(next,{id:item.id,level:String(item.level||1),legacyLevel:String(item.level||1),legacyFlat,legacyName:item.name,locked:Boolean(item.locked),affixes:clone(item.affixes||[]),invested:String(item.invested||0)});s.items.push(next);
+    if(owner&&s.equipment[owner]&&canEquip(s,owner,next,item.slot))s.equipment[owner][item.slot]=next.id;
+  }
+  for(const id in s.equipment){const main=s.items.find(i=>i.id===s.equipment[id][0]);if(main&&TEMPLATE_BY_ID[main.templateId].twoHand)s.equipment[id][1]=null;}
+  report.push('旧五名特工按稳定ID映射岗位，保留星级/碎片；旧装备保留实例、品质、词条、等级与实付台账，固定属性以迁移前快照延续。');
+  report.push('旧任务进度、肉鸽和首通封存在快照；新目录从头开始，不发新首通或AX05资格。旧自动5%奖励已由48×有效旧重生次数的回溯点替代，不叠加。');
+  report.push('武器按新许可映射；不兼容副手卸回背包。旧未结算挑战封存；原奖励已成功结算的货币与装备保留。');log(s,'档案已升级：旧档快照完整保留，可导出核对。',now);return s;
+}
+export function act(input,action,now=Date.now(),rng=random) {
+  requireRule(action&&typeof action==='object','操作无效');if(action.type==='migrate')return {state:migrateState(input,now),result:{migrated:input.schema!==SCHEMA}};
+  requireRule(input.schema===SCHEMA,'请先升级档案，旧档将完整保留');const s=clone(input);let result={};
+  switch(action.type) {
+    case 'claim': result=claimIdle(s,now);break;
+    case 'formation': {const a=action.formation;requireRule(Array.isArray(a)&&a.length===6,'阵容应为六格');const ids=a.filter(Boolean);requireRule(ids.length>=1&&ids.length<=5&&new Set(ids).size===ids.length,'阵容需要一至五名不同特工');ids.forEach(id=>owned(s,id));s.formation=a.map(id=>id||null);break;}
+    case 'recruit': {const count=action.count??1;requireRule([1,10].includes(count),'招募次数无效');spend(s,'recruit',100*count);result.recruits=Array.from({length:count},()=>grantHero(s,HEROES[weighted(Array(16).fill(1),rng)].id));break;}
+    case 'star': {const h=owned(s,action.hero),cost=[20,40,80,120][h.star-1];requireRule(cost&&h.shards>=cost,'碎片不足或已满星');h.shards-=cost;h.star++;break;}
+    case 'exchange': {const h=owned(s,action.hero);requireRule(h.star<5,'满星特工无需兑换');spend(s,'recruit',300);h.shards+=10;break;}
+    case 'recycleShards': {const h=owned(s,action.hero),n=Number(natural(action.count,1n));requireRule(h.star===5&&Number.isSafeInteger(n)&&n<=h.shards,'仅可回收满星特工已有碎片');h.shards-=n;credit(s,'recruit',BigInt(n)*5n);break;}
+    case 'equip': {
+      const item=itemById(s,action.item),slot=action.slot;requireRule(Number.isInteger(slot)&&canEquip(s,action.hero,item,slot),'部位或武器类型不适用于该特工');
+      for(const slots of Object.values(s.equipment))for(let i=0;i<15;i++)if(slots[i]===item.id)slots[i]=null;
+      const slots=s.equipment[action.hero];slots[slot]=item.id;if(slot===0&&TEMPLATE_BY_ID[item.templateId].twoHand)slots[1]=null;
+      if(slot===1){const main=s.items.find(i=>i.id===slots[0]);if(main&&TEMPLATE_BY_ID[main.templateId].twoHand)slots[0]=null;}break;
     }
-    case 'recruit':{
-      const count=action.count;requireRule(count===1||count===10,'请选择单次或十连招募');requireRule(s.recruit>=count*100,'招募点不足');s.recruit-=count*100;
-      result.draws=[];for(let i=0;i<count;i++){const hero=pick(HEROES,rng),entry=s.heroes[hero.id];const isNew=!entry.owned;
-        if(isNew)entry.owned=true;else entry.shards+=10;result.draws.push({id:hero.id,isNew});}
-      log(s,`招募 ${count} 次：${result.draws.map(d=>HEROES.find(h=>h.id===d.id).name+(d.isNew?'（新）':' +10 碎片')).join('、')}`,now);break;
+    case 'unequip': owned(s,action.hero);requireRule(Number.isInteger(action.slot)&&action.slot>=0&&action.slot<15,'部位无效');s.equipment[action.hero][action.slot]=null;break;
+    case 'lock': {const item=itemById(s,action.item);item.locked=!item.locked;break;}
+    case 'upgrade': {
+      const item=itemById(s,action.item),count=action.count??1;requireRule([1,5,10,100].includes(count),'强化次数无效');let paid=0n,levels=0;
+      for(let i=0;i<count;i++){const cost=upgradeCost(item,s);if(walletUnits(s,'gold')<cost*SCALE)break;spend(s,'gold',cost);paid+=cost;item.level=(natural(item.level)+1n).toString();levels++;}
+      requireRule(levels>0,'金币不足');item.invested=(BigInt(item.invested)+paid).toString();result={levels,paid:paid.toString()};break;
     }
-    case 'star':{
-      heroOwned(s,action.hero);const h=s.heroes[action.hero];requireRule(h.star<3,'Demo 星级上限为 3 星');const cost=starCost(h);requireRule(h.shards>=cost,'角色碎片不足');h.shards-=cost;h.star++;break;
+    case 'salvage': {
+      const ids=action.items??[action.item];requireRule(Array.isArray(ids)&&ids.length>0&&ids.length<=600&&new Set(ids).size===ids.length,'分解列表无效');let coins=0n;
+      for(const id of ids){const item=itemById(s,id);requireRule(!item.locked&&!Object.values(s.equipment).some(slots=>slots.includes(id)),'锁定或已穿戴的装备不能分解');coins+=salvageValue(item,s);}
+      s.items=s.items.filter(i=>!ids.includes(i.id));credit(s,'gold',coins);result={coins:coins.toString(),count:ids.length};break;
     }
-    case 'upgrade':{
-      const item=getItem(s,action.item);requireRule(action.count===1||action.count===5,'升级次数无效');let spent=0,levels=0;
-      for(let i=0;i<action.count&&item.level<30;i++){const cost=upgradeCost(item);if(s.gold<cost)break;s.gold-=cost;spent+=cost;item.invested+=cost;item.level++;levels++;}
-      requireRule(levels>0,item.level>=30?'Demo 装备等级上限为 30':'金币不足');result={spent,levels};break;
+    case 'start': {
+      requireRule(!s.pendingBuff,'请先完成异常强化选择');const task=TASKS[action.taskId];requireRule(task,'任务不存在');requireRule(task.unlock==='initial'||s.runClears.includes(task.unlock),'请先完成前置任务');
+      if(task.kind==='gear')space(s,1+(!s.firsts.includes(task.id)&&task.rewards.historicalSelectableEquipment?1:0));
+      const heroes=s.formation.map((id,slot)=>id?{id,slot,...heroStats(s,id)}:null).filter(Boolean);requireRule(heroes.length,'请先编队');
+      s.challenge={id:uid(),taskId:task.id,cycle:s.cycle,startedAt:now,rule:RULE_VERSION,balanceRevision:DATA.balanceRevision,seed:Math.floor(rng()*4294967296),heroes,buffs:chosenBuffs(s),bonuses:Object.fromEntries(TALENTS.map(t=>[t.effect,talentBonus(s,t.effect)]))};result={challenge:s.challenge};break;
     }
-    case 'equip':{
-      heroOwned(s,action.hero);const item=getItem(s,action.item);detach(s,item.id);const row=s.equipment[action.hero];
-      if(item.slot===1){const main=s.items.find(i=>i.id===row[0]);if(main?.twoHand)row[0]=null;}
-      if(item.twoHand)row[1]=null;row[item.slot]=item.id;break;
-    }
-    case 'unequip':heroOwned(s,action.hero);requireRule(integer(action.slot,0,14),'槽位无效');s.equipment[action.hero][action.slot]=null;break;
-    case 'salvage':{
-      const item=getItem(s,action.item);requireRule(!Object.values(s.equipment).some(row=>row.includes(item.id)),'请先卸下这件装备');
-      const gold=item.invested+15*(item.quality+1);s.gold+=gold;s.items=s.items.filter(i=>i.id!==item.id);result={gold};break;
-    }
-    case 'start':{
-      requireRule(Object.hasOwn(DUNGEONS,action.dungeon),'副本不存在');requireRule(integer(action.stage,1,MAX_STAGE),'关卡无效');
-      requireRule(action.stage<=s.progress[action.dungeon]+1,'请先通过前一关');requireRule(s.formation.some(Boolean),'请先安排上场角色');
-      requireRule(!s.pendingBuff,'请先选择待领取的肉鸽强化');
-      requireRule(action.dungeon!=='gear'||s.items.length<MAX_INVENTORY,'背包已满，请先分解装备');
-      s.challenge={id:uid(),dungeon:action.dungeon,stage:action.stage,cycle:s.cycle,startedAt:now,rule:RULE_VERSION,
-        seed:Math.floor(rng()*4294967296),heroes:s.formation.map((id,slot)=>id?{...HEROES.find(h=>h.id===id),...heroStats(s,id),slot}:null).filter(Boolean)};
-      result={challenge:s.challenge};break;
-    }
-    case 'settle':{
-      const c=s.challenge;requireRule(c&&c.id===action.challenge,'挑战已失效，请重新进入');requireRule(c.cycle===s.cycle,'挑战不属于当前重生轮次');
-      requireRule(action.outcome==='win'||action.outcome==='loss','结算结果无效');
-      s.challenge=null;result={outcome:action.outcome,dungeon:c.dungeon,stage:c.stage,gold:0,recruit:0};
-      if(action.outcome==='loss'){log(s,`${DUNGEONS[c.dungeon].name} ${c.stage} 层挑战失败`,now);break;}
-      const firstKey=`${c.dungeon}:${c.stage}`;
-      if(c.dungeon==='idle')claimIdle(s,now); // Settle the old income rate before progression changes it.
-      s.progress[c.dungeon]=Math.max(s.progress[c.dungeon],c.stage);
-      result.gold=65+c.stage*25;result.recruit=c.dungeon==='gear'?8+c.stage*2:0;
-      if(!s.firsts.includes(firstKey)){s.firsts.push(firstKey);result.recruit+=40;result.first=true;}
-      s.gold+=result.gold;s.recruit+=result.recruit;
-      if(c.dungeon==='gear'){
-        requireRule(s.items.length<MAX_INVENTORY,'背包已满，请分解后重试结算');
-        const item=makeItem(c.stage,rng);s.items.push(item);result.item=item;
+    case 'abandon': requireRule(s.challenge,'没有进行中的挑战');s.challenge=null;result={abandoned:true};break;
+    case 'settle': {
+      const c=s.challenge;requireRule(c&&c.id===action.challengeId&&c.cycle===s.cycle,'挑战已结算或失效');requireRule(c.rule===RULE_VERSION&&c.balanceRevision===DATA.balanceRevision,'规则已更新，请重新挑战');requireRule(['win','loss'].includes(action.outcome),'结算结果无效');
+      const task=TASKS[c.taskId],r=task.rewards;s.challenge=null;result={taskId:task.id,outcome:action.outcome,gold:'0',recruit:'0'};if(action.outcome==='loss'){log(s,`${task.name} · 行动失败`,now);break;}
+      if(task.kind==='idle')claimIdle(s,now);const first=!s.firsts.includes(task.id),runFirst=!s.runClears.includes(task.id);
+      if(runFirst){s.runClears.push(task.id);s.progress[task.kind]=Math.max(s.progress[task.kind],task.index);}
+      if(first){s.firsts.push(task.id);if(!s.historyContribution.includes(task.id)){s.historyContribution.push(task.id);s.pendingHistoryContribution.push(task.id);}}
+      let gold=r.winGold||0,recruit=r.winRecruitPoints||0;
+      if(task.kind==='idle'&&first){gold+=r.historicalUnitBonusGold;recruit+=r.historicalUnitBonusRecruitPoints;if(r.historicalGuaranteedCharacter)result.character=grantHero(s,HEROES.find(h=>h.name===r.historicalGuaranteedCharacter).id);}
+      if(task.kind==='gear'){
+        space(s,1+(first&&r.historicalSelectableEquipment?1:0));const item=rollEquipment(task,s,rng);s.items.push(item);result.item=item;
+        if(first){recruit+=r.historicalFirstClearRecruitPoints;if(r.historicalSelectableEquipment)s.pendingEquipment.push({taskId:task.id,...r.historicalSelectableEquipment});}
       }
-      if(c.dungeon==='rogue'&&!s.claimed.includes(c.stage)){
-        const pool=[...BUFFS];const options=[];for(let i=0;i<3;i++)options.push(pool.splice(Math.floor(rng()*pool.length),1)[0].id);
-        s.pendingBuff={stage:c.stage,options};result.buff=true;
+      if(task.kind==='rogue'){
+        if(first)recruit+=r.historical_first_clear_rewards.recruit_points;
+        if(runFirst){const pool=r.choices.filter(b=>b.sampling!=='guaranteed'&&(b.effect_type!=='enhance_owned'||DATA.rogueEnhanceWhitelist.some(w=>s.buffs.includes(w.choice_id))));const options=[];
+          while(options.length<2&&pool.length)options.push(pool.splice(weighted(pool.map(b=>b.weight),rng),1)[0].id);
+          options.push(r.choices.find(b=>b.sampling==='guaranteed').id);s.pendingBuff={taskId:task.id,options};result.buff=true;}
       }
-      log(s,`通关 ${DUNGEONS[c.dungeon].name} ${c.stage} 层 · +${result.gold} 金币${result.item?' · '+result.item.name:''}`,now);break;
+      credit(s,'gold',gold);credit(s,'recruit',recruit);Object.assign(result,{first,runFirst,gold:String(gold),recruit:String(recruit)});log(s,`${task.name} · 完成${first?' / 历史首通':''}`,now);break;
     }
-    case 'buff':{
-      requireRule(s.pendingBuff?.options.includes(action.buff),'强化选项已失效');
-      requireRule(!s.claimed.includes(s.pendingBuff.stage),'该节点已领取');s.claimed.push(s.pendingBuff.stage);s.buffs.push(action.buff);s.pendingBuff=null;break;
+    case 'buff': {
+      requireRule(s.pendingBuff?.options.includes(action.buff),'强化选项已过期');if(BUFF_BY_ID[action.buff].effect_type==='enhance_owned'){requireRule(s.buffs.includes(action.target)&&DATA.rogueEnhanceWhitelist.some(w=>w.choice_id===action.target),'请选择已有的可精修强化');s.enhancedBuff=action.target;}s.buffs.push(action.buff);s.pendingBuff=null;break;
     }
-    case 'rebirth':{
-      requireRule(s.progress.idle>=6,'通关远征第 6 层后可重生');requireRule(!s.pendingBuff,'请先选择强化');claimIdle(s,now);
-      s.cycle++;s.rebirths++;s.gold=1600;s.idleCarry.gold=0;s.progress={idle:0,gear:0,rogue:0};s.buffs=[];s.claimed=[];s.challenge=null;
-      for(const item of s.items){item.level=1;item.invested=0;}result={cycle:s.cycle};log(s,`开启第 ${s.cycle} 轮旅途，永久基础属性 +${s.rebirths*5}%`,now);break;
+    case 'selectEquipment': {
+      const index=s.pendingEquipment.findIndex(p=>p.taskId===action.taskId),p=s.pendingEquipment[index],t=TEMPLATE_BY_ID[action.templateId];requireRule(p&&t&&t.tier===p.tier&&t.group===({武器:'weapon',防具:'armor',首饰:'jewelry'}[p.group]),'不属于该自选装备池');
+      requireRule(s.items.length<MAX_INVENTORY,'背包已满');const item=makeItem(t.id,1,rng);s.items.push(item);s.pendingEquipment.splice(index,1);result={item};break;
+    }
+    case 'rebirth': {
+      const payout=rebirthPreview(s);requireRule(payout.eligible,'本轮完成第五收容任务，并处理待领奖励及挑战后可回溯');const plan=allocationPreview(s,action.allocation);requireRule(DATA.permanentGroupFocus.choices.includes(action.focus||s.focus),'搜集目标无效');claimIdle(s,now);
+      s.points=plan.remaining;s.talents=plan.talents;s.focus=action.focus||s.focus;s.pointRemainder=payout.remainder;s.pendingHistoryContribution=[];s.rebirths++;s.cycle++;s.wallet.gold=decimalUnits(1600).toString();s.progress={idle:0,gear:0,rogue:0};s.runClears=[];s.buffs=[];s.enhancedBuff=null;s.challenge=null;
+      for(const item of s.items){item.level='1';item.invested='0';}result={points:payout.points,cycle:s.cycle};log(s,`时间回溯 · 第${s.cycle}轮行动，加点配置已生效`,now);break;
     }
     default:throw new GameError('未知操作');
   }
   return {state:s,result};
-}
-export function seededRandom(seed){let a=seed>>>0;return()=>{a+=0x6D2B79F5;let t=a;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return((t^t>>>14)>>>0)/4294967296;};}
-export function makeEnemies(stage,dungeon='idle'){
-  const scale=Math.pow(1.16,stage-1)*(dungeon==='rogue'?1.08:1);
-  let layout;
-  if(stage%3===0)layout=[{name:'遗迹领主',kind:'boss',x:1,row:1,w:2,h:2},{name:'岩壳卫',kind:'mob',x:0,row:0,w:1,h:1},{name:'岩壳卫',kind:'mob',x:3,row:0,w:1,h:1}];
-  else if(stage%2===0)layout=[{name:'重甲督卫',kind:'elite',x:1,row:0,w:2,h:1},{name:'灰烬兽',kind:'mob',x:0,row:1,w:1,h:1},{name:'灰烬兽',kind:'mob',x:3,row:1,w:1,h:1}];
-  else layout=[0,1,3].map(x=>({name:'灰烬兽',kind:'mob',x,row:0,w:1,h:1}));
-  return layout.map((e,i)=>{const elite=e.kind==='elite',boss=e.kind==='boss';return {...e,id:`enemy-${i}`,hp:Math.round((boss?760:elite?390:200)*scale),atk:Math.round((boss?65:elite?47:30)*scale),def:Math.round((boss?20:elite?14:8)*scale),interval:boss?2.8:2.6,cd:boss?9:elite?12:999};});
-}
-function distance(a,b){return (a.x-b.x)**2+(a.y-b.y)**2;}
-export function chooseTarget(attacker,targets){
-  const live=targets.filter(t=>t.hp>0);if(!live.length)return null;
-  const front=Math.min(...live.map(t=>t.row));
-  return live.filter(t=>t.row===front).sort((a,b)=>distance(attacker,a)-distance(attacker,b)||a.order-b.order)[0];
-}
-export function simulate(challenge){
-  const rng=seededRandom(challenge.seed);
-  const heroes=challenge.heroes.map((h,i)=>({...h,side:'hero',maxHp:h.hp,shield:0,x:(h.slot%3)*1.5+.5,y:1+Math.floor(h.slot/3),row:Math.floor(h.slot/3),order:i,next:0.7+i*.17,skillAt:h.cd}));
-  const enemies=makeEnemies(challenge.stage,challenge.dungeon).map((e,i)=>({...e,side:'enemy',maxHp:e.hp,shield:0,x:e.x+(e.w-1)/2,y:-1-e.row-(e.h-1)/2,order:i,crit:.03,critDamage:1.5,haste:0,next:1.1+i*.23,skillAt:e.cd}));
-  const units=[...heroes,...enemies],events=[];let outcome='loss',elapsed=BATTLE_LIMIT;
-  const frame=(time,text,actor=null,targets=[])=>events.push({time:Math.round(time*10)/10,text,actor,targets,units:units.map(u=>({id:u.id,hp:Math.max(0,Math.round(u.hp)),shield:Math.round(u.shield)}))});
-  function damage(a,b,mult){
-    const crit=rng()<a.crit;let amount=Math.max(1,Math.round(a.atk*mult*100/(100+b.def)*(crit?a.critDamage:1)));
-    const absorb=Math.min(b.shield,amount);b.shield-=absorb;amount-=absorb;b.hp=Math.max(0,b.hp-amount);return amount;
-  }
-  frame(0,'战斗开始');
-  for(let tick=1;tick<=BATTLE_LIMIT*10;tick++){
-    const time=tick/10;
-    for(const a of units){
-      if(a.hp<=0)continue;const friends=(a.side==='hero'?heroes:enemies).filter(u=>u.hp>0),foes=(a.side==='hero'?enemies:heroes).filter(u=>u.hp>0);
-      if(!foes.length)break;
-      if(time>=a.skillAt){
-        a.skillAt+=a.cd;let targets=[];
-        if(a.kind==='heal'){const t=[...friends].sort((x,y)=>x.hp/x.maxHp-y.hp/y.maxHp)[0];t.hp=Math.min(t.maxHp,t.hp+a.atk*2.8);targets=[t.id];}
-        else if(a.kind==='guard'){a.hp=Math.min(a.maxHp,a.hp+a.maxHp*.18);a.shield+=a.atk*2;targets=[a.id];}
-        else if(a.kind==='shield'){for(const t of friends){t.shield=Math.min(t.maxHp,t.shield+a.atk*1.6);targets.push(t.id);}}
-        else if(a.kind==='aoe'||a.kind==='boss'){for(const t of foes){damage(a,t,a.kind==='boss'?.9:1.25);targets.push(t.id);}}
-        else {const t=a.kind==='execute'?[...foes].sort((x,y)=>x.hp/x.maxHp-y.hp/y.maxHp)[0]:chooseTarget(a,foes);damage(a,t,a.kind==='execute'?2.6:1.8);targets=[t.id];}
-        frame(time,`${a.name} · ${a.skill||'震击'}`,a.id,targets);
-      }else if(time>=a.next){
-        a.next=time+a.interval*(1-(a.haste||0));const target=chooseTarget(a,foes);const amount=damage(a,target,1);
-        frame(time,`${a.name} → ${target.name} · ${amount}`,a.id,[target.id]);
-      }
-      if(!enemies.some(u=>u.hp>0)||!heroes.some(u=>u.hp>0))break;
-    }
-    if(!heroes.some(u=>u.hp>0)){elapsed=time;break;}
-    if(!enemies.some(u=>u.hp>0)){outcome='win';elapsed=time;break;}
-  }
-  frame(elapsed,outcome==='win'?'敌人已全灭':heroes.some(u=>u.hp>0)?'挑战超时':'我方全灭');
-  return {heroes,enemies,events,outcome,elapsed};
 }

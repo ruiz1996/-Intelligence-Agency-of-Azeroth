@@ -1,0 +1,146 @@
+[
+  {
+    "id": "yan",
+    "name": "门卫",
+    "sourceFile": "B01_门卫_v1.png",
+    "sourceSha256": "ad03b0dc85dd3f01bcb5a592215ba2cd23b140b3e4153cc7907108db43b8aa93",
+    "width": 1024,
+    "height": 1536,
+    "status": "candidate-art"
+  },
+  {
+    "id": "ling",
+    "name": "医务员",
+    "sourceFile": "B02_医务员_v1.png",
+    "sourceSha256": "d30d9cf8fd9a33edd34eee2f65b9c3da6365b7d94fc26c84cb5a97827099ef51",
+    "width": 1024,
+    "height": 1536,
+    "status": "candidate-art"
+  },
+  {
+    "id": "jin",
+    "name": "爆破工",
+    "sourceFile": "B03_爆破工_v1.png",
+    "sourceSha256": "bd2acb58e4a8c4fede0688d48b92036f3554e6ad09475fefdb1dd229bc1d6217",
+    "width": 1024,
+    "height": 1536,
+    "status": "candidate-art"
+  },
+  {
+    "id": "shuo",
+    "name": "巡逻员",
+    "sourceFile": "B04_巡逻员_v1.png",
+    "sourceSha256": "871c12c4fd533c8e8cf6d0ed12cc66febc4952241e26031951a1435a8e8d49be",
+    "width": 1024,
+    "height": 1536,
+    "status": "candidate-art"
+  },
+  {
+    "id": "lan",
+    "name": "维修工",
+    "sourceFile": "B05_维修工_v1.png",
+    "sourceSha256": "a8ad122f369b5ef09cd79112a5f81026c624364ed464a8606fcce085d83fb8a0",
+    "width": 1024,
+    "height": 1536,
+    "status": "candidate-art"
+  },
+  {
+    "id": "wudi",
+    "name": "无敌大搞完",
+    "sourceFile": "001_无敌大搞完_v1.png",
+    "sourceSha256": "6ce9dd0c13b3b7d4453d642b6578eac779df3798db1fa7f9ffb654f1fcffa4b5",
+    "width": 1024,
+    "height": 1536,
+    "status": "candidate-art"
+  },
+  {
+    "id": "echoz",
+    "name": "Echoz",
+    "sourceFile": "002_Echoz_v1.png",
+    "sourceSha256": "7de62f813fd51f7ad84c36df01684075fe67bb7583561aa21b7678992b31bd64",
+    "width": 1024,
+    "height": 1536,
+    "status": "candidate-art"
+  },
+  {
+    "id": "kukalon",
+    "name": "Kukalon",
+    "sourceFile": "003_Kukalon_v1.png",
+    "sourceSha256": "65fd61d39c155ed1675d5a62bc9aac3b89c5b3cd87ff6d71d621318b0693edd6",
+    "width": 1024,
+    "height": 1536,
+    "status": "candidate-art"
+  },
+  {
+    "id": "asuna",
+    "name": "亚丝娜",
+    "sourceFile": "004_亚丝娜_v1.png",
+    "sourceSha256": "7780f067b6f71b1b3a4aa193823291a47cbc79b59d33806002f6045cb306948d",
+    "width": 1024,
+    "height": 1536,
+    "status": "candidate-art"
+  },
+  {
+    "id": "xiaocheng",
+    "name": "小橙",
+    "sourceFile": "005_小橙_v1.png",
+    "sourceSha256": "f1e17e719c3124a709e9b9776dd274cbe61e13501532ac299301946909946a6a",
+    "width": 1024,
+    "height": 1536,
+    "status": "candidate-art"
+  },
+  {
+    "id": "suxiaoyao",
+    "name": "苏小瑶",
+    "sourceFile": "006_苏小瑶_v1.png",
+    "sourceSha256": "4b44d1adc015ecf3f10811f490c80bdceb949c05879e0534b27187c2f3a9feb2",
+    "width": 1024,
+    "height": 1536,
+    "status": "candidate-art"
+  },
+  {
+    "id": "sacred_druid",
+    "name": "神圣小德",
+    "sourceFile": "007_神圣小德_v1.png",
+    "sourceSha256": "3c2208aa5a53b96c68fee45a64ce82bb86ef46eda57c9775bb6b0b4780d4f626",
+    "width": 1024,
+    "height": 1536,
+    "status": "candidate-art"
+  },
+  {
+    "id": "bandebeidiwang",
+    "name": "斑得贝迪王",
+    "sourceFile": "008_斑得贝迪王_v1.png",
+    "sourceSha256": "41c41b515e338f0c40624a882303505df9fa020e8f95957a331f387a7d51b0af",
+    "width": 1024,
+    "height": 1536,
+    "status": "candidate-art"
+  },
+  {
+    "id": "lancelot",
+    "name": "兰斯洛",
+    "sourceFile": "009_兰斯洛_v1.png",
+    "sourceSha256": "5afaad11da122d9cd69e15326ce7ea3dd1394b3482c50ab5e46ebc59ccdaed41",
+    "width": 1024,
+    "height": 1536,
+    "status": "candidate-art"
+  },
+  {
+    "id": "qinglian",
+    "name": "青莲剑仙",
+    "sourceFile": "010_青莲剑仙_v1.png",
+    "sourceSha256": "a40d5c4dcbcfd79844531b04ac67374c17f0d64581a866ecd3e46d59257812d4",
+    "width": 1024,
+    "height": 1536,
+    "status": "candidate-art"
+  },
+  {
+    "id": "makelong",
+    "name": "玛刻龙",
+    "sourceFile": "011_玛刻龙_v1.png",
+    "sourceSha256": "a7bec30883fffd6f7e5d8f3f187db84d5a3b631c918aa80fbf67112faa698faa",
+    "width": 1024,
+    "height": 1536,
+    "status": "candidate-art"
+  }
+]
