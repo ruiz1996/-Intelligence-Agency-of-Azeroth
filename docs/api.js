@@ -1,4 +1,4 @@
-import {createState,act,uid,RULE_VERSION,DATA} from './core.js';
+import {createState,completeRoster,act,uid,RULE_VERSION,DATA} from './core.js';
 const config=window.GAME_CONFIG||{};
 export const cloudReady=Boolean(config.supabaseUrl&&config.supabaseKey);
 const base=(config.supabaseUrl||'').replace(/\/$/,'');
@@ -55,7 +55,7 @@ export class GameClient{
   acknowledgePresentation(){localStorage.removeItem(this.key+':presentation');}
   now(){return Date.now()+this.offset;}
   async cloud(body){const token=await accessToken();return request(base+'/functions/v1/game',{method:'POST',headers:authHeaders(token),body:JSON.stringify(body)});}
-  accept(envelope){this.version=envelope.version;this.offset=(envelope.serverTime||Date.now())-Date.now();return envelope;}
+  accept(envelope){this.version=envelope.version;this.offset=(envelope.serverTime||Date.now())-Date.now();return {...envelope,state:completeRoster(envelope.state)};}
   async load(){
     if(this.pending)return this.retry();
     if(this.mode==='cloud')return this.accept(await this.cloud({type:'load'}));

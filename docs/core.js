@@ -64,8 +64,13 @@ function grantHero(s,id) { const h=s.heroes[id];if(h.owned){h.shards+=10;return 
 function space(s,count=1) { requireRule(s.items.length+s.pendingEquipment.length+count<=MAX_INVENTORY,'背包空间不足，请先分解未穿戴且未锁定的装备'); }
 function owned(s,id) { requireRule(HERO_BY_ID[id]&&s.heroes[id].owned,'未拥有该特工');return s.heroes[id]; }
 function itemById(s,id) { const item=s.items.find(i=>i.id===id);requireRule(item,'装备不存在');return item; }
+export function completeRoster(old) {
+  const s=clone(old);if(s.schema!==SCHEMA)return s;
+  for(const h of HEROES){s.heroes[h.id]??={owned:false,star:1,shards:0};s.equipment[h.id]??=Array(15).fill(null);}
+  return s;
+}
 export function migrateState(old,now=Date.now()) {
-  if(old.schema===SCHEMA)return clone(old);requireRule(old.schema===1,'档案版本不受支持，原档已保留');
+  if(old.schema===SCHEMA)return completeRoster(old);requireRule(old.schema===1,'档案版本不受支持，原档已保留');
   const s=createState(now),report=[];s.items=[];for(const id in s.equipment)s.equipment[id].fill(null);
   s.migrations={baseline2:{at:now,snapshot:clone(old),report},rebirth_points_v1:true};s.cycle=old.cycle||1;s.rebirths=Number.isSafeInteger(old.rebirths)&&old.rebirths>=0?old.rebirths:0;
   if(!Number.isSafeInteger(old.rebirths)||old.rebirths<0)report.push('旧重生次数缺失或无效，保留原快照待核对，未推算补点。');
@@ -92,11 +97,11 @@ export function migrateState(old,now=Date.now()) {
 }
 export function act(input,action,now=Date.now(),rng=random) {
   requireRule(action&&typeof action==='object','操作无效');if(action.type==='migrate')return {state:migrateState(input,now),result:{migrated:input.schema!==SCHEMA}};
-  requireRule(input.schema===SCHEMA,'请先升级档案，旧档将完整保留');const s=clone(input);s.rule=RULE_VERSION;let result={};
+  requireRule(input.schema===SCHEMA,'请先升级档案，旧档将完整保留');const s=completeRoster(input);s.rule=RULE_VERSION;let result={};
   switch(action.type) {
     case 'claim': result=claimIdle(s,now);break;
     case 'formation': {const a=action.formation;requireRule(Array.isArray(a)&&a.length===6,'阵容应为六格');const ids=a.filter(Boolean);requireRule(ids.length>=1&&ids.length<=5&&new Set(ids).size===ids.length,'阵容需要一至五名不同特工');ids.forEach(id=>owned(s,id));s.formation=a.map(id=>id||null);break;}
-    case 'recruit': {const count=action.count??1;requireRule([1,10].includes(count),'招募次数无效');spend(s,'recruit',100*count);result.recruits=Array.from({length:count},()=>grantHero(s,HEROES[weighted(Array(16).fill(1),rng)].id));break;}
+    case 'recruit': {const count=action.count??1;requireRule([1,10].includes(count),'招募次数无效');spend(s,'recruit',100*count);result.recruits=Array.from({length:count},()=>grantHero(s,HEROES[weighted(HEROES.map(()=>1),rng)].id));break;}
     case 'star': {const h=owned(s,action.hero),cost=[20,40,80,120][h.star-1];requireRule(cost&&h.shards>=cost,'碎片不足或已满星');h.shards-=cost;h.star++;break;}
     case 'exchange': {const h=owned(s,action.hero);requireRule(h.star<5,'满星特工无需兑换');spend(s,'recruit',300);h.shards+=10;break;}
     case 'recycleShards': {const h=owned(s,action.hero),n=Number(natural(action.count,1n));requireRule(h.star===5&&Number.isSafeInteger(n)&&n<=h.shards,'仅可回收满星特工已有碎片');h.shards-=n;credit(s,'recruit',BigInt(n)*5n);break;}

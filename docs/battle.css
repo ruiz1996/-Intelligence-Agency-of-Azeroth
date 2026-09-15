@@ -29,6 +29,7 @@
 .enemy-grid .unit-art{transform:translateY(var(--enemy-enter))}
 .unit-art img{display:block;width:100%;height:100%;position:absolute;inset:0;object-fit:contain;object-position:center}
 .ally .unit-art img{object-fit:cover;object-position:center 10%}
+#unit-kuodaya .unit-art img{object-fit:contain;object-position:center;background:#fff}
 .battle-card[data-family=biter] .unit-art img{object-fit:cover;object-position:center 55%}
 .battle-card.elite:before,.battle-card.boss:before{content:'';position:absolute;inset:0;border-top:2px solid #c5ae74;clip-path:polygon(0 0,22% 0,22% 10%,78% 10%,78% 0,100% 0,100% 28%,94% 28%,94% 10%,6% 10%,6% 28%,0 28%);z-index:2;pointer-events:none}
 .battle-card.boss{border-color:#b7a172;background:radial-gradient(ellipse at center,#71664b30,#18292b90)}

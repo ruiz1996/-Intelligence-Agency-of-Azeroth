@@ -142,5 +142,41 @@
     "width": 1024,
     "height": 1536,
     "status": "candidate-art"
+  },
+  {
+    "id": "kuodaya",
+    "name": "阔达鸭",
+    "sourceFile": "阔达鸭/阔达鸭_用户指定原图.jpg",
+    "sourceSha256": "8fee86fcc98ef99a8451e9c8845083944698eae77ea50918ae08dd71e06d9907",
+    "width": 611,
+    "height": 331,
+    "status": "user-selected-art"
+  },
+  {
+    "id": "yuliang",
+    "name": "鱼梁行者",
+    "sourceFile": "鱼梁行者/鱼梁行者_用户指定原图.jpg",
+    "sourceSha256": "420130e0f4f1f5d3878319eb642b272a0ae0e027c467d3bb8c52f52981f57592",
+    "width": 1122,
+    "height": 1402,
+    "status": "user-selected-art"
+  },
+  {
+    "id": "xifeng",
+    "name": "希风",
+    "sourceFile": "希风/希风_用户指定原图.png",
+    "sourceSha256": "ae571fb709636935b21b7648b720a3930170eafda402a4c7ad4b82d87cc41d60",
+    "width": 1254,
+    "height": 1254,
+    "status": "user-selected-art"
+  },
+  {
+    "id": "hasika",
+    "name": "哈斯卡",
+    "sourceFile": "哈斯卡/哈斯卡_用户指定原图.jpg",
+    "sourceSha256": "eb9ccf2f98172633bb5dc92c4a72d91e313d5c61e737d4aeea3d038751904473",
+    "width": 1024,
+    "height": 1536,
+    "status": "user-selected-art"
   }
 ]

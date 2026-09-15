@@ -12,6 +12,12 @@ export const slotIcons = ['⚔','◈','♙','⌑','♜','Ⅱ','═','♧','⌞',
 export function skillSummary(hero) {
   const a=hero.active,damage=percent(a.atkCoefficient)+'攻击';
   switch(a.kind){
+    case 'form_dispatch': return '单手或空主手：无视苦痛与防御姿态；双手：致死打击与战斗姿态。战前换装切换，整场三波锁定。';
+    case 'random_other_ally_effect_bonus': return `随机另一名存活队友获得「${a.buffName}」：伤害、治疗和护盾效果各+${percent(a.damageBonus)}，持续${a.durationSeconds}秒。`;
+    case 'self_shield': return `获得自身${percent(a.shieldMaxHpFraction)}最大生命的护盾，持续${a.shieldDurationSeconds}秒。`;
+    case 'execute_direct_damage_with_war_intent': return `对当前目标造成${damage}伤害，每层战意再提高10%；命中前目标生命≤35%时再提高50%。消耗全部战意。`;
+    case 'distinct_injured_ally_chain_heal': return '依次治疗最多3名不同的受伤队友，回复160% / 112% / 78.4%攻击的生命，优先生命比例低者。';
+    case 'direct_damage_then_basic_followup_window': return `对当前目标造成${damage}伤害，刷新后续2次有效普攻的野兽顺劈。`;
     case 'single_direct_damage': return `对目标造成${damage}伤害。`;
     case 'multi_direct_damage': return `对最多${a.maxTargets}名敌人各造成${damage}伤害。`;
     case 'all_enemy_direct_damage': return `对全体敌人各造成${damage}伤害。`;
@@ -27,7 +33,7 @@ export function skillSummary(hero) {
     default:return skillText(hero);
   }
 }
-export function passiveSummary(hero){return {
+export function passiveSummary(hero){if(['kuodaya','yuliang','xifeng','hasika'].includes(hero.id))return passiveText(hero);return {
   yan:'前排受到的普攻伤害降低12%。',ling:'目标生命低于35%时，主动治疗+35%。',jin:'每三次普攻，向另一目标追加45%攻击伤害，不暴击。',
   shuo:'连续普攻同一目标，第二次起每次伤害+6%，最多+18%；换目标或目标死亡时清空。',lan:'有护盾时，普攻伤害+20%。',
   wudi:'每次行动后，向生命比例最高的其他队友支付最多3%最大生命（至少留1生命），实付的160%转为8秒护盾。护盾满时不支付。',
@@ -48,6 +54,7 @@ export function skillCopy(hero, passive=false){
 
 export function skillText(hero) {
   const a = hero.active;
+  if(['kuodaya','yuliang','xifeng','hasika'].includes(hero.id))return skillSummary(hero)+(hero.id==='kuodaya'?'本人不在随机目标中；没有其他存活队友时保留技能。增益不增加攻击属性或行动速度，复制与转换效果不重复放大。':hero.id==='yuliang'?'战前装备决定形态，整场三波锁定；单手缺盾或空主手仍可使用防御技能。':hero.id==='xifeng'?'全队满血时保留技能，不会重复治疗同一目标。':'追击窗口不叠加，换波保留剩余次数；灵兽不占据战场格。');
   const damage = `${num(a.atkCoefficient * 100)}%攻击`;
   switch (a.kind) {
     case 'self_heal_shield': return `恢复自身${percent(a.healMaxHpFraction)}最大生命，并获得${percent(a.shieldMaxHpFraction)}最大生命护盾，持续${a.shieldDurationSeconds}秒。满血也可施放。`;
@@ -68,7 +75,11 @@ export function skillText(hero) {
 }
 
 export function passiveText(hero) {
+  if(hero.id==='yuliang')return hero.form==='offense'?'原生普攻实际命中生命或护盾后获得1层战意，最多3层，每层使下次致死打击的内部倍率+10%。主动消耗全部层数；复制、追击不叠层，换波保留。':'敌方伤害额外减伤12个百分点，与其他适用减伤相加后封顶60%。不要求持盾或前排，不减少生命支付或已计算的醉伤。';
   return {
+    kuodaya:'KKT：本人存活时，其他存活队友攻击属性+15个百分点，与其他攻击属性加成相加。本人不受益；阵亡时光环消失，已发出的钥匙保留到原到期。',
+    xifeng:'任一存活队友生命≤25%时，所有存活队友的实际生命点数均分；达到个人上限的余量继续分给其他人。整场三波仅1次，不复活、不拦截致死伤害，不作为治疗或伤害。希风阵亡或仅剩1人时不触发。',
+    hasika:'有顺劈次数时，原生普攻实际命中生命或护盾后消耗1次：主目标追加50%攻击伤害，另最多2名存活敌人各承受25%攻击伤害。追击不暴击、不递归；主目标被普攻击杀时仍可顺劈其他目标。',
     yan:'在前排时，受到的普通攻击伤害降低12%。',
     ling:'治疗前目标生命低于35%，本次主动治疗提高35%。',
     jin:'每完成三次普攻，向另一目标追加45%攻击伤害，不暴击，也不会触发新的追击。',
@@ -88,7 +99,7 @@ export function passiveText(hero) {
   }[hero.id];
 }
 
-export const roleText = h => ({tank:'守卫',offtank:'战士',healer:'治疗',single:'单体输出',aoe:'群体输出',aoe_burst:'爆发输出',aoe_all:'群体输出',aoe_dot:'持续伤害',single_clutch:'单体输出',group_healer:'群体治疗'}[h.role] || '特工');
+export const roleText = h => ({backline_support:'后排辅助',weapon_form_hybrid:'双形态战士',chain_healer:'链式治疗',single_cleave:'单体与顺劈',tank:'守卫',offtank:'战士',healer:'治疗',single:'单体输出',aoe:'群体输出',aoe_burst:'爆发输出',aoe_all:'群体输出',aoe_dot:'持续伤害',single_clutch:'单体输出',group_healer:'群体治疗'}[h.role] || '特工');
 export function mechanicText(task) {
   const m=task.waves?.at(-1)?.mechanic;
   if(!m)return '连续完成三波；队伍生命、护盾和技能冷却保留。';

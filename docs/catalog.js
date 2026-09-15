@@ -1,6 +1,9 @@
-import { DATA } from './data.js';
-export { DATA };
-export const RULE_VERSION = 'agency-three-wave-3';
+import { DATA as BASE_DATA } from './data.js';
+import { NEW_HEROES } from './new-heroes.js';
+export const RULE_VERSION = 'agency-four-heroes-4';
+const characters=[...BASE_DATA.characters,...NEW_HEROES];
+export const DATA = {...BASE_DATA,characters,balanceRevision:'four-heroes-v0.4',requiresBattleEngineVersion:RULE_VERSION,
+  recruitment:{...BASE_DATA.recruitment,weights:characters.map(h=>({name:h.name,weight:1,chanceBp:10000/characters.length}))}};
 export const SCHEMA = 2;
 export const BATTLE_LIMIT = 90;
 export const MAX_INVENTORY = 600;

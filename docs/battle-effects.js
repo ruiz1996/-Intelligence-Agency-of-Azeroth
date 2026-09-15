@@ -4,6 +4,7 @@ const profiles={
   bandebeidiwang:['#b996d4','curse'],lancelot:['#f0d595','judgement'],qinglian:['#e0b675','purify'],
   makelong:['#83cabe','ripple'],yan:['#ccab80','guard'],ling:['#a6d59a','leaf'],jin:['#e7ac79','burst'],
   shuo:['#d0ccaa','bullet'],lan:['#9cc2dc','guard'],
+  kuodaya:['#8ebcce','guard'],yuliang:['#d9ba75','slash'],xifeng:['#8bc9da','ripple'],hasika:['#b5cb87','fan'],
 };
 export function motionPreference(){return localStorage.getItem('ax-battle-motion')||'system';}
 export function reducedMotion(){const pref=motionPreference();return pref==='reduced'||pref==='system'&&matchMedia('(prefers-reduced-motion: reduce)').matches;}
@@ -95,6 +96,8 @@ export class BattleEffects {
     if(item)this.floats.push({key,target:event.target,node,item,amount,last:now,lane});
   }
   event(e){
+    if(e.type==='buff'){if(!reducedMotion()){this.projectile(e.source,e.target,'#a5cddd','bolt');this.pulse(e.target,'guard','#a5cddd');}return;}
+    if(e.type==='redistribute'){this.skillLabel({...e,type:'skill'});if(!reducedMotion())for(const u of e.changes)this.pulse(u.id,'ripple','#8bc9da');return;}
     if(e.type==='skill'){this.skillLabel(e);if(!reducedMotion())this.source(e.source,e.time,true);return;}
     if(e.type==='death'){this.removeSkill(e.target);return;}
     if(reducedMotion())return;
