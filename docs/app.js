@@ -17,6 +17,11 @@ const defaults={view:'home',kind:'idle',taskId:'R001',selectedHero:'yan',gearTab
 let ui={...defaults},sheet=null,state,client,busy=false,battle=null,worker=null,battleTimer,toastTimer,afterBack=null;
 let formationDraft=null,allocation=null,focus='main_hand',restoreFocus=null;
 let battleEffects=null;
+let preferredBattleSpeed=2;
+try {
+  const savedSpeed=Number(localStorage.getItem('ax-battle-speed'));
+  if([1,2,4].includes(savedSpeed))preferredBattleSpeed=savedSpeed;
+} catch {}
 const marked=new Set(),scrollPositions=new Map();
 try { ui={...defaults,...JSON.parse(sessionStorage.getItem('ax-ui-v2')||'{}')}; } catch {}
 const initialRoute=location.hash.slice(1);if(titles[initialRoute])ui.view=initialRoute;
@@ -356,7 +361,7 @@ function applyFrame(units){
 }
 function stopBattle(){finishWave();battleEffects?.dispose();battleEffects=null;clearInterval(battleTimer);battleTimer=null;worker?.terminate();worker=null;battle=null;}
 function beginBattle(challenge){
-  stopBattle();toastNode.classList.remove('visible');toastNode.textContent='';battle={challenge,speed:2,elapsed:0,index:0,wave:1,holdUntil:0,last:performance.now(),units:{},simulation:null,currentFrame:null,log:[]};
+  stopBattle();toastNode.classList.remove('visible');toastNode.textContent='';battle={challenge,speed:preferredBattleSpeed,elapsed:0,index:0,wave:1,holdUntil:0,last:performance.now(),units:{},simulation:null,currentFrame:null,log:[]};
   transition('battle',{taskId:challenge.taskId,kind:TASKS[challenge.taskId].kind},true);preloadEnemies(currentTask());
   worker=new Worker(new URL('./battle-worker.js',import.meta.url),{type:'module'});
   worker.onmessage=({data})=>{if(data.error){toast(data.error);stopBattle();transition('tasks',{},true);return;}battle.simulation=data;battle.units=Object.fromEntries(data.initial.map(u=>[u.id,u]));battle.last=performance.now();drawBattle();battleTimer=setInterval(playback,50);};
@@ -442,7 +447,11 @@ async function handle(action,el){
   if(action==='resetPlan'){allocation={};rememberScroll();render();return;}
   if(action==='rebirth'){openSheet('rebirthConfirm');return;}
   if(action==='battleMotion'){localStorage.setItem('ax-battle-motion',d.motion);updateBattleMotion();renderSheet();return;}
-  if(action==='cycleSpeed'){battle.speed=battle.speed===4?1:battle.speed*2;el.textContent=battle.speed+'×';return;}
+  if(action==='cycleSpeed'){
+    preferredBattleSpeed=battle.speed=battle.speed===4?1:battle.speed*2;
+    try { localStorage.setItem('ax-battle-speed',String(preferredBattleSpeed)); } catch {}
+    el.textContent=battle.speed+'×';return;
+  }
   if(action==='retreat'){openSheet('retreat',{next:'tasks'});return;}
   if(action==='battleUnit'){openSheet('battleUnit',{unit:d.unit});return;}
   if(client.pending){toast('请先重试同步');return;}
