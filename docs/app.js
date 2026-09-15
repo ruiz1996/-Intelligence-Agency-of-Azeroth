@@ -79,7 +79,7 @@ window.addEventListener('popstate',event=>{
   }
   rememberScroll();ui={...defaults,...target.ui};sheet=target.sheet;
   if(ui.view==='battle'&&!battle){ui.view='tasks';sheet=null;stamp();}
-  render();saveUI();const callback=afterBack;afterBack=null;callback?.();
+  if(battle&&ui.view==='battle')renderSheet();else render();saveUI();const callback=afterBack;afterBack=null;callback?.();
   if(!sheet&&restoreFocus?.isConnected)restoreFocus.focus({preventScroll:true});
 });
 window.addEventListener('beforeunload',event=>{if(battle||draftDirty()||busy){event.preventDefault();event.returnValue='';}});
@@ -149,7 +149,7 @@ function notice(){
 }
 function render(){
   if(!state)return;
-  finishWave();battleEffects?.clear();battleEffects=null;
+  finishWave();battleEffects?.dispose();battleEffects=null;
   const active=document.activeElement,focused=active?.id?{id:active.id,start:active.selectionStart,end:active.selectionEnd}:null;
   if(state.schema!==SCHEMA){root.innerHTML=`<main class="welcome"><section class="panel"><h1>旧档案升级</h1><p>保留特工、装备收藏与完整原档。任务重新开始，原重生奖励转换为回溯点。</p><div class="actions">${button('导出原档','export')}${button('保留快照并升级','migrate','',false,'primary')}</div>${client.pending?button('重试同步','retry'):''}</section></main>`;return;}
   if(ui.view==='battle'&&!battle)ui.view='tasks';
@@ -257,7 +257,7 @@ function modalContent(){
   return {title,body,actions};
 }
 function renderSheet(){
-  if(!sheet){if(modal.open)modal.close();modal.innerHTML='';return;}
+  if(!sheet){if(modal.open)modal.close();modal.innerHTML='';syncBattleView();return;}
   pauseBattleView();
   const {title,body,actions}=modalContent(),position=scrollPositions.get(sheetKey())||0;
   modal.setAttribute('aria-labelledby','sheet-title');modal.innerHTML=`<header class="sheet-head"><h2 id="sheet-title">${esc(title)}</h2>${button('×','close','aria-label="关闭"',false,'icon-button')}</header><div class="sheet-body">${body}<p class="sheet-error" role="alert" hidden></p></div><footer class="sheet-footer">${client.pending?`<div class="retry-row"><span>保存未确认</span>${button('重试同步','retry')}</div>`:''}<div class="actions">${actions}</div></footer>`;
@@ -294,10 +294,16 @@ function finishWave(){
   const pending=battle?.waveTransition;if(!pending)return;
   if(!pending.inserted)pending.insert();battle.waveTransition=null;
 }
-function pauseBattleView(){finishWave();battleEffects?.clear();if(battle){battle.holdUntil=0;battle.last=performance.now();}}
-document.addEventListener('visibilitychange',pauseBattleView);
-window.addEventListener('resize',pauseBattleView);
-matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change',()=>{pauseBattleView();document.querySelector('.battlefield')?.setAttribute('data-motion',reducedMotion()?'reduced':'full');});
+function pauseBattleView(){if(!battle)return;const now=performance.now();battle.pausedAt??=now;battle.last=now;battleEffects?.pause();}
+function syncBattleView(){
+  if(!battle)return;if(sheet||busy||document.hidden){pauseBattleView();return;}
+  const now=performance.now();if(battle.pausedAt!=null){battle.holdUntil+=now-battle.pausedAt;battle.pausedAt=null;}
+  battle.last=now;battleEffects?.resume();
+}
+document.addEventListener('visibilitychange',syncBattleView);
+window.addEventListener('resize',()=>battleEffects?.repositionLabels());
+function updateBattleMotion(){finishWave();battleEffects?.clear();if(battle)battle.holdUntil=0;document.querySelector('.battlefield')?.setAttribute('data-motion',reducedMotion()?'reduced':'full');syncBattleView();}
+matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change',updateBattleMotion);
 function showWave(event){
   finishWave();battleEffects?.clear();
   const heroes=Object.values(battle.units).filter(u=>u.side==='hero'),oldWave=battle.wave;
@@ -336,7 +342,7 @@ function applyFrame(units){
     card.querySelector('.unit-status').innerHTML=statuses.slice(0,3).map(([icon,name])=>'<i title="'+name+'">'+icon+'</i>').join('')+(statuses.length>3?'<i>+'+(statuses.length-3)+'</i>':'');
   }
 }
-function stopBattle(){finishWave();battleEffects?.clear();battleEffects=null;clearInterval(battleTimer);battleTimer=null;worker?.terminate();worker=null;battle=null;}
+function stopBattle(){finishWave();battleEffects?.dispose();battleEffects=null;clearInterval(battleTimer);battleTimer=null;worker?.terminate();worker=null;battle=null;}
 function beginBattle(challenge){
   stopBattle();toastNode.classList.remove('visible');toastNode.textContent='';battle={challenge,speed:2,elapsed:0,index:0,wave:1,holdUntil:0,last:performance.now(),units:{},simulation:null,currentFrame:null,log:[]};
   transition('battle',{taskId:challenge.taskId,kind:TASKS[challenge.taskId].kind},true);preloadEnemies(currentTask());
@@ -345,7 +351,7 @@ function beginBattle(challenge){
   worker.onerror=()=>{toast('战斗暂时无法开始，请返回后重试');stopBattle();transition('tasks',{},true);};worker.postMessage(challenge);
 }
 function playback(){
-  if(!battle?.simulation)return;const now=performance.now();if(busy||sheet||document.hidden||now<battle.holdUntil){battle.last=now;return;}
+  if(!battle?.simulation)return;const now=performance.now();if(busy||sheet||document.hidden){pauseBattleView();return;}if(now<battle.holdUntil){battle.last=now;return;}
   battle.elapsed+=(now-battle.last)/1000*battle.speed;battle.last=now;const sim=battle.simulation,visual=[];
   const clock=document.querySelector('#battle-time');if(clock)clock.textContent=Math.min(battle.elapsed,sim.duration).toFixed(1)+' / 90秒';
   while(battle.index<sim.events.length&&sim.events[battle.index].time<=battle.elapsed){const e=sim.events[battle.index++];let text;
@@ -357,7 +363,7 @@ function playback(){
     if(e.type==='summon'){appendUnit(e.unit);const card=document.getElementById('unit-'+e.unit.id);if(card)battleEffects?.animate(card.querySelector('.unit-art'),[{opacity:0,transform:'scale(.94)'},{opacity:1,transform:'scale(1)'}],battleEffects.duration(150));}
     if(e.type==='frame'){battle.currentFrame=e.units;applyFrame(e.units);}
     else visual.push(e);
-    if(e.type==='skill'){text=(HERO_BY_ID[e.source]?.name||battle.units[e.source]?.name||'敌方')+' · '+e.name;battleEffects?.announce(e.name);}
+    if(e.type==='skill')text=(HERO_BY_ID[e.source]?.name||battle.units[e.source]?.name||'敌方')+' · '+e.name;
     if(e.type==='mechanic'||e.type==='clutch')text=e.text;
     if(text)battle.log.push({time:e.time,text});
   }
@@ -421,7 +427,7 @@ async function handle(action,el){
   if(action==='talent'){allocation[d.id]=(BigInt(allocation[d.id]||0)+BigInt(d.delta)).toString();rememberScroll();render();return;}
   if(action==='resetPlan'){allocation={};rememberScroll();render();return;}
   if(action==='rebirth'){openSheet('rebirthConfirm');return;}
-  if(action==='battleMotion'){localStorage.setItem('ax-battle-motion',d.motion);pauseBattleView();document.querySelector('.battlefield')?.setAttribute('data-motion',reducedMotion()?'reduced':'full');renderSheet();return;}
+  if(action==='battleMotion'){localStorage.setItem('ax-battle-motion',d.motion);updateBattleMotion();renderSheet();return;}
   if(action==='cycleSpeed'){battle.speed=battle.speed===4?1:battle.speed*2;el.textContent=battle.speed+'×';return;}
   if(action==='retreat'){openSheet('retreat',{next:'tasks'});return;}
   if(action==='battleUnit'){openSheet('battleUnit',{unit:d.unit});return;}

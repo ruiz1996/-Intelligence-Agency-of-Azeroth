@@ -12,20 +12,35 @@ export function reducedMotion(){const pref=motionPreference();return pref==='red
 export class BattleEffects {
   constructor(field,{unit,speed,weapon}) {
     this.field=field;this.unit=unit;this.speed=speed;this.weapon=weapon;
-    this.layer=field.querySelector('.battle-effects');this.active=new Set();this.floats=[];this.seen=new Set();this.timers=new Set();
+    this.layer=field.querySelector('.battle-effects');this.active=new Set();this.floats=[];this.labels=new Map();this.seen=new Set();this.timers=new Set();this.paused=false;
+    this.resizeObserver=new ResizeObserver(()=>this.repositionLabels());this.resizeObserver.observe(field);
+    this.unitsObserver=new MutationObserver(()=>this.repositionLabels());
+    for(const grid of field.querySelectorAll('.ally-grid,.enemy-grid')){this.resizeObserver.observe(grid);this.unitsObserver.observe(grid,{childList:true});}
   }
   duration(ms){return Math.max(75,ms/this.speed());}
   card(id){return document.getElementById('unit-'+id);}
-  point(id){const card=this.card(id);if(!card)return null;const r=card.getBoundingClientRect(),f=this.field.getBoundingClientRect();return {x:r.x-f.x+r.width/2,y:r.y-f.y+r.height/2,top:r.top-f.top,width:r.width};}
-  later(fn,ms){const timer=setTimeout(()=>{this.timers.delete(timer);fn();},ms);this.timers.add(timer);return timer;}
-  clear(){for(const timer of this.timers)clearTimeout(timer);this.timers.clear();for(const item of [...this.active])item.cancel();this.floats=[];this.seen.clear();this.layer.replaceChildren();const banner=this.field.querySelector('#battle-announcement');if(banner)banner.textContent='';}
+  point(id){const card=this.card(id);if(!card)return null;const r=card.getBoundingClientRect(),f=this.field.getBoundingClientRect();return {x:r.x-f.x+r.width/2,y:r.y-f.y+r.height/2,top:r.top-f.top,bottom:r.bottom-f.top,width:r.width,height:r.height};}
+  schedule(timer){timer.started=performance.now();timer.id=setTimeout(()=>{this.timers.delete(timer);timer.fn();},timer.remaining);}
+  later(fn,ms){const timer={fn,remaining:ms};this.timers.add(timer);if(!this.paused)this.schedule(timer);return timer;}
+  pause(){
+    if(this.paused)return;this.paused=true;
+    for(const timer of this.timers){clearTimeout(timer.id);timer.remaining=Math.max(0,timer.remaining-(performance.now()-timer.started));}
+    for(const item of this.active)item.animation.pause();
+  }
+  resume(){
+    if(!this.paused)return;this.paused=false;this.repositionLabels();
+    for(const timer of this.timers)this.schedule(timer);
+    for(const item of this.active)item.animation.play();
+  }
+  clear(){for(const timer of this.timers)clearTimeout(timer.id);this.timers.clear();for(const item of [...this.active])item.cancel();this.floats=[];this.labels.clear();this.seen.clear();this.layer.replaceChildren();const banner=this.field.querySelector('#battle-announcement');if(banner)banner.textContent='';}
+  dispose(){this.clear();this.resizeObserver.disconnect();this.unitsObserver.disconnect();}
   once(key){if(this.seen.has(key))return false;this.seen.add(key);if(this.seen.size>256)this.seen.delete(this.seen.values().next().value);return true;}
-  animate(node,frames,duration,{remove=false,priority=0,delay=0}={}){
-    if(reducedMotion()) {if(remove)node.remove();return null;}
-    if(this.active.size>=12){const drop=[...this.active].find(e=>e.priority===0);if(drop)drop.cancel();else {if(remove)node.remove();return null;}}
+  animate(node,frames,duration,{remove=false,priority=0,delay=0,allowReduced=false,onRemove}={}){
+    if(reducedMotion()&&!allowReduced) {if(remove)node.remove();return null;}
+    if(this.active.size>=12){const drop=[...this.active].find(e=>e.priority===0)||[...this.active].find(e=>e.priority<priority);if(drop)drop.cancel();else {if(remove)node.remove();return null;}}
     const animation=node.animate(frames,{duration,delay,easing:'ease-out',fill:'backwards'});
-    const item={priority,cancel:()=>{animation.cancel();if(remove)node.remove();this.active.delete(item);this.floats=this.floats.filter(f=>f.item!==item);}};
-    this.active.add(item);animation.onfinish=item.cancel;return item;
+    const item={priority,animation,cancel:()=>{animation.cancel();if(remove)node.remove();this.active.delete(item);this.floats=this.floats.filter(f=>f.item!==item);onRemove?.();}};
+    this.active.add(item);animation.onfinish=item.cancel;if(this.paused)animation.pause();return item;
   }
   element(kind,point,color){const node=document.createElement('i');node.className='combat-fx fx-'+kind;node.style.setProperty('--fx-color',color);node.style.left=point.x+'px';node.style.top=point.y+'px';this.layer.append(node);return node;}
   pulse(id,kind='ring',color='#cdb886',duration=300){const p=this.point(id);if(!p)return;const node=this.element(kind,p,color);this.animate(node,[{opacity:0,transform:kind==='star'?'translate(-50%,calc(-50% - 22px)) scale(.6)':'translate(-50%,-50%) scale(.45)'},{opacity:.85,offset:.25},{opacity:0,transform:'translate(-50%,-50%) scale(1.3)'}],this.duration(duration),{remove:true});}
@@ -40,6 +55,26 @@ export class BattleEffects {
     if(cast)this.pulse(id,'ring',profiles[id]?.[0],380);
   }
   announce(text,ms=450){const node=this.field.querySelector('#battle-announcement');node.textContent=text;const token={};this.announcement=token;this.later(()=>{if(this.announcement===token)node.textContent='';},ms);}
+  removeSkill(id){this.labels.get(id)?.item.cancel();}
+  positionLabel(id,node){
+    const point=this.point(id);if(!point)return false;
+    node.style.left=point.x+'px';node.style.top=Math.max(0,point.top-26)+'px';node.style.maxWidth=point.width+'px';return true;
+  }
+  repositionLabels(){for(const [id,label] of this.labels)if(!this.positionLabel(id,label.node))this.removeSkill(id);}
+  skillLabel(event){
+    const {source,name,time}=event,card=this.card(source);
+    if(!card||card.classList.contains('dead')||!name||!this.once(`skill:${time}:${source}:${name}`))return;
+    this.removeSkill(source);
+    const node=document.createElement('span');node.className='skill-label';node.dataset.source=source;node.textContent=name;node.title=name;
+    this.positionLabel(source,node);this.layer.append(node);
+    const reduced=reducedMotion(),duration=reduced?450:Math.max(300,650/this.speed());
+    const frames=reduced?[{opacity:1},{opacity:1,offset:.84},{opacity:0}]:[
+      {opacity:0,transform:'translate(-50%,3px)'},{opacity:1,transform:'translate(-50%,0)',offset:100/650},
+      {opacity:1,transform:'translate(-50%,0)',offset:490/650},{opacity:0,transform:'translate(-50%,0)'},
+    ];
+    const item=this.animate(node,frames,duration,{remove:true,priority:2,allowReduced:true,onRemove:()=>{if(this.labels.get(source)?.node===node)this.labels.delete(source);}});
+    if(item)this.labels.set(source,{node,item});
+  }
   number(event,kind,amount){
     if(!(amount>0)||!this.point(event.target))return;
     const now=performance.now(),key=`${event.source}:${event.target}:${kind}`;
@@ -48,16 +83,22 @@ export class BattleEffects {
     if(existing){existing.amount+=amount;existing.last=now;existing.node.textContent=label(existing.amount);if(event.critical)existing.node.classList.add('critical');return;}
     const same=this.floats.filter(f=>f.target===event.target);if(same.length>=2)same[0].item.cancel();
     if(this.floats.length>=8)this.floats[0].item.cancel();
+    const lane=this.floats.some(f=>f.target===event.target&&f.lane===0)?1:0;
     const p=this.point(event.target),node=document.createElement('span');node.className=`combat-number number-${kind}${event.critical?' critical':''}`;
     node.textContent=label(amount);node.dataset.target=event.target;node.dataset.kind=kind;
-    node.style.left=Math.max(32,Math.min(this.field.clientWidth-42,p.x))+'px';node.style.top=Math.max(12,p.top+5+(same.length?16:0))+'px';this.layer.append(node);
-    const item=this.animate(node,[{opacity:1,transform:'translate(-50%,0)'},{opacity:0,transform:'translate(-50%,-16px)'}],this.duration(event.critical?560:480),{remove:true,priority:1});
-    if(item)this.floats.push({key,target:event.target,node,item,amount,last:now});
+    // Keep both lanes in the lower portrait area, away from the caster's name.
+    const vitals=this.card(event.target).querySelector('.unit-vitals').getBoundingClientRect(),field=this.field.getBoundingClientRect();
+    const compact=vitals.top-field.top-p.top<80;
+    node.style.left=(p.x+(compact?(lane?1:-1)*p.width/4:0))+'px';node.style.maxWidth=(compact?p.width/2:p.width)+'px';
+    node.style.top=Math.max(p.top+2,vitals.top-field.top-22-(compact?0:lane*20))+'px';this.layer.append(node);
+    const item=this.animate(node,[{opacity:1,transform:'translate(-50%,0)'},{opacity:0,transform:'translate(-50%,0)'}],this.duration(event.critical?560:480),{remove:true,priority:1});
+    if(item)this.floats.push({key,target:event.target,node,item,amount,last:now,lane});
   }
   event(e){
+    if(e.type==='skill'){this.skillLabel(e);if(!reducedMotion())this.source(e.source,e.time,true);return;}
+    if(e.type==='death'){this.removeSkill(e.target);return;}
     if(reducedMotion())return;
     const [color,shape]=profiles[e.source]||['#b7c5b2','slash'];
-    if(e.type==='skill'){this.source(e.source,e.time,true);return;}
     if(e.type==='damage'){
       if(e.amount>0)this.number(e,e.tag==='debt'?'debt':'damage',e.amount);
       if(e.absorbed>0)this.number(e,'absorbed',e.absorbed);

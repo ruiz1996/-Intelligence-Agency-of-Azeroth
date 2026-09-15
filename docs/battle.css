@@ -9,7 +9,7 @@
 .battle-progress{height:26px;flex-shrink:0;display:flex;align-items:center;gap:14px;padding:0 12px;background:#122025}
 .wave-pips{display:flex;gap:5px;flex:1}.wave-pips i{display:block;height:3px;flex:1;background:#314043;border-radius:3px}.wave-pips i.reached{background:#d1b77c}
 #battle-time{color:#a4b5b4;font-size:.78rem;font-variant-numeric:tabular-nums;white-space:nowrap}
-.battlefield{isolation:isolate;position:relative;display:grid;grid-template-rows:minmax(188px,1fr) 26px minmax(164px,.9fr);gap:0;flex:1;min-height:402px;padding:10px 14px 14px;overflow:hidden;--scene:#527563;--advance:0px;background:radial-gradient(ellipse at 50% 60%,#283d35,#101c20 80%)}
+.battlefield{isolation:isolate;position:relative;display:grid;grid-template-rows:minmax(188px,1fr) 44px minmax(164px,.9fr);gap:0;flex:1;min-height:438px;padding:28px 14px 14px;overflow:hidden;--scene:#527563;--advance:0px;background:radial-gradient(ellipse at 50% 60%,#283d35,#101c20 80%)}
 .scene-far,.scene-floor,.scene-haze{position:absolute;pointer-events:none;z-index:-1}
 .scene-far{inset:-40px 0;transform:translateY(var(--far-advance,0px));background:radial-gradient(ellipse at 50% -20%,var(--scene),transparent 60%),linear-gradient(120deg,#0c171ce6 10%,transparent 40% 60%,#0c171ce6 90%);opacity:.7}
 .scene-floor{inset:-190px -25px -190px;transform:translateY(var(--advance));background:repeating-linear-gradient(0deg,transparent 0 62px,#c1cdaf0a 63px 64px),repeating-conic-gradient(from 75deg at 50% 5%,transparent 0 29deg,#c1cdaf07 29.4deg 30deg);mask-image:linear-gradient(transparent 15%,#000 48%);opacity:.85}
@@ -20,9 +20,9 @@
 .scene-ruins{--scene:#5d7b88}.scene-mine{--scene:#77634a}.scene-castle{--scene:#666383}.scene-mechanical{--scene:#538888}.scene-corridor{--scene:#6b7e74}
 .scene-corridor .scene-far,.scene-mechanical .scene-far{background:linear-gradient(90deg,#112227 5%,transparent 5.5% 94.5%,#112227 95%),repeating-linear-gradient(90deg,transparent 0 24%,#b3c9b20d 24.5% 25%),linear-gradient(var(--scene),transparent 75%)}
 .enemy-grid{position:relative;min-height:188px;padding:0;gap:4px;border:0;background:none;border-radius:0;flex:initial}
-.ally-grid{position:relative;min-height:164px;gap:8px;flex:initial;padding:0 6px}
+.ally-grid{position:relative;min-height:164px;gap:30px 8px;flex:initial;padding:0 6px}
 .empty-battle-slot{border:1px solid #a6bfaa16;background:#20312b15;border-radius:8px}
-.battle-announcement{position:relative;display:flex;align-items:center;justify-content:center;min-height:0;height:26px;padding:0 8px;margin:0;background:none;color:#e2d5ad;font-size:.82rem;letter-spacing:.06em;z-index:3;pointer-events:none}
+.battle-announcement{position:relative;display:flex;align-items:flex-start;justify-content:center;min-height:0;height:44px;line-height:18px;padding:0 8px;margin:0;background:none;color:#e2d5ad;font-size:.82rem;letter-spacing:.06em;z-index:3;pointer-events:none}
 .battle-card,.battle-card.ally,.battle-card.elite,.battle-card.boss{position:relative;min-width:0;min-height:44px;padding:0;display:flex;flex-direction:column;justify-content:stretch;gap:0;border:1px solid #9aaa7b40;background:#17272980;border-radius:7px;overflow:hidden;filter:none;opacity:1;transition:opacity .12s,filter .12s}
 .battle-card.ally{border-color:#a9bb8e65;background:#1d3033}
 .unit-art{position:relative;display:block;flex:1;min-height:0;min-width:0;width:100%;overflow:hidden;transform-origin:center 80%}
@@ -56,9 +56,10 @@
 .fx-purify{border:2px dotted currentColor}.fx-pulse{width:24px;height:24px;border-width:4px}.fx-lightning{border:0;border-radius:0;width:22px;height:52px;background:currentColor;clip-path:polygon(60% 0,13% 55%,47% 51%,30% 100%,95% 35%,60% 40%)}
 .fx-frost{border-style:dotted;border-radius:0;rotate:45deg;background:linear-gradient(transparent 45%,currentColor 47% 53%,transparent 55%),linear-gradient(90deg,transparent 45%,currentColor 47% 53%,transparent 55%)}
 .fx-area,.fx-weather{height:65px;border:1px solid currentColor;background:radial-gradient(ellipse,color-mix(in srgb,currentColor 15%,transparent),transparent 70%)}.fx-weather{border:0;background:repeating-linear-gradient(110deg,transparent 0 24px,color-mix(in srgb,currentColor 40%,transparent) 25px 27px,transparent 28px 45px)}
-.combat-number{position:absolute;white-space:nowrap;line-height:1.15;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:#f1c8ae;text-shadow:0 1px 3px #000,0 0 3px #000;background:#1320289e;border-radius:3px;padding:1px 3px;pointer-events:none}
+.skill-label{position:absolute;z-index:2;display:block;height:22px;padding:2px 7px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;transform:translate(-50%,0);border:1px solid #7f937d50;border-radius:4px;background:#17272b;color:#ead6a8;font-size:12px;font-weight:400;line-height:16px;pointer-events:none}
+.combat-number{position:absolute;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.15;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums;color:#f1c8ae;text-shadow:0 1px 3px #000,0 0 3px #000;background:#1320289e;border-radius:3px;padding:1px 3px;pointer-events:none}
 .combat-number.critical{font-size:15.6px;font-weight:800;border-bottom:1px solid currentColor}.number-heal{color:#b8e4ae}.number-shield,.number-absorbed{color:#b6d9f6}.number-payment,.number-debt{color:#e1b38a}.number-purify{color:#ecdaa7}
 [data-motion=reduced] .battle-card,[data-motion=reduced] .hp-bar i,[data-motion=reduced] .shield-bar i{transition:none}
-@media(min-width:700px) and (min-height:700px){.battlefield{padding:18px 48px 20px}.ally-grid{padding:0 30px;gap:10px}.enemy-grid{gap:8px}.battle-mode .topbar{padding-inline:22px}}
-@media(max-width:340px){.battlefield{padding:8px 10px 12px}.battle-mode .topbar{padding-inline:8px;gap:3px}.battle-mode .topbar button{padding-inline:7px}.battle-mode .topbar .battle-title{font-size:.9rem}.ally-grid{gap:6px;padding:0 3px}}
+@media(min-width:700px) and (min-height:700px){.battlefield{padding:28px 48px 20px}.ally-grid{padding:0 30px;column-gap:10px}.enemy-grid{gap:8px}.battle-mode .topbar{padding-inline:22px}}
+@media(max-width:340px){.battlefield{padding:28px 10px 12px}.battle-mode .topbar{padding-inline:8px;gap:3px}.battle-mode .topbar .battle-title{font-size:.9rem}.battle-mode .topbar button{padding-inline:7px}.ally-grid{column-gap:6px;padding:0 3px}}
 @media(max-height:530px){.battlefield{flex:none;height:410px}.battle-mode .page-body{overflow-y:auto}.battle-mode .action-bar{min-height:52px}}
