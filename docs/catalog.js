@@ -19,6 +19,14 @@ export const TEMPLATE_BY_ID = Object.fromEntries(TEMPLATES.map(t=>[t.id,t]));
 export const DUNGEONS = {idle:{name:'资源行动',description:'推进星球资源任务，提高无限离线收益。'},gear:{name:'装备行动',description:'收集五系列装备，强化长期收藏。'},rogue:{name:'异常收容',description:'每节点每轮选择一次强化，第五任务解锁回溯。'}};
 export const CATALOG = {idle:DATA.resourceStages,gear:DATA.equipmentTasks,rogue:DATA.containmentTasks};
 export const TASKS = Object.fromEntries(Object.entries(CATALOG).flatMap(([kind,entries])=>entries.map(t=>[t.id,{...t,kind}])));
+// Access survives rebirth; runClears remains the separate per-cycle reward ledger.
+export function taskUnlocked(state,task){
+  if(!task)return false;
+  return task.unlock==='initial'||[state.firsts,state.historyContribution,state.runClears].some(ids=>ids?.includes(task.id)||ids?.includes(task.unlock));
+}
+export function latestUnlockedTask(state,kind){
+  const list=CATALOG[kind],task=list.findLast(t=>taskUnlocked(state,t))||list[0];return TASKS[task.id];
+}
 export const BUFFS = DATA.containmentTasks.flatMap(t=>t.rewards.choices);
 export const BUFF_BY_ID = Object.fromEntries(BUFFS.map(b=>[b.id,b]));
 export const TALENTS = DATA.permanentTalents;

@@ -2,7 +2,7 @@ import {
   DATA,HEROES,HERO_BY_ID,TEMPLATES,TEMPLATE_BY_ID,CATALOG,TASKS,BUFF_BY_ID,TALENTS,
   SLOT_NAMES,QUALITY,AFFIX_NAMES,RULE_VERSION,SCHEMA,SCALE,formatMoney,formatInteger,
   heroStats,heroDefinition,upgradeCost,salvageValue,canEquip,templateSlots,idleRates,idlePreview,
-  rebirthPreview,allocationPreview,pointCost,act,equipmentType,templateAvailable,idleGearPreview,WEAPON_REVISION,
+  rebirthPreview,allocationPreview,pointCost,act,equipmentType,templateAvailable,idleGearPreview,WEAPON_REVISION,taskUnlocked,latestUnlockedTask,
 } from './core.js';
 import {createBattleReport} from './battle-report.js';
 import {archiveClues,idleGearCard,idleGearTime,reportContent,revealStyle,revealSound,soundEnabled,toggleSound,unlockSound} from './feature-v5.js';
@@ -38,7 +38,7 @@ const item=id=>state.items.find(i=>i.id===id);
 const currentTask=()=>TASKS[ui.taskId]||TASKS.R001;
 const taskTime=task=>task.limitSeconds===null?'不限时':'共'+task.limitSeconds+'秒';
 const battleTime=elapsed=>elapsed.toFixed(1)+(currentTask().limitSeconds===null?'秒 · 不限时':' / '+currentTask().limitSeconds+'秒');
-const unlocked=t=>t.unlock==='initial'||state.runClears.includes(t.unlock);
+const unlocked=t=>taskUnlocked(state,t);
 const stars=id=>'★'.repeat(state.heroes[id].star);
 const draftDirty=()=>formationDraft&&JSON.stringify(formationDraft)!==JSON.stringify(state.formation);
 const sheetKey=()=>sheet?JSON.stringify(sheet):null;
@@ -120,7 +120,7 @@ async function mutate(action,retry=false){
 function success(action,result){
   if(action.type==='start'&&result.challenge){beginBattle(result.challenge);return;}
   if(action.type==='formation'){formationDraft=null;transition('heroes',{},true);toast('阵容已保存');return;}
-  if(action.type==='rebirth'){allocation=null;marked.clear();ui.taskId='R001';transition('home',{},true);toast('新的行动开始，加点已生效');return;}
+  if(action.type==='rebirth'){allocation=null;marked.clear();if(!unlocked(currentTask()))selectProgress(ui.kind,false);transition('home',{},true);toast('新的行动开始，加点已生效');return;}
   if(action.type==='buff'){ui.selectedBuff=null;transition('rogue',{},true);toast('强化已生效');return;}
   if(action.type==='abandon'){const target=sheet?.type==='retreat'?sheet.data:{next:'tasks'},recent=client.recentBattle,show=battle||recent?.challengeId===action.challengeId;stopBattle();transition(target.next||'tasks',target.patch||{},true);if(show&&recent)openSheet('result',{taskId:recent.taskId,outcome:'retreat',report:recent.report,tab:'stats'});else toast('已撤回行动');return;}
   if(result.outcome||result.recruits){showReceipt();return;}
@@ -173,7 +173,7 @@ function render(){
 }
 
 function taskStatus(task){if(!unlocked(task))return '未解锁';if(state.pendingBuff?.taskId===task.id)return '强化待选';if(state.runClears.includes(task.id))return TASKS[task.id].kind==='rogue'?'本轮强化已领取':'已完成';return '可挑战';}
-function selectProgress(kind=ui.kind,renderNow=true){const task=CATALOG[kind][Math.min(CATALOG[kind].length-1,state.progress[kind])];Object.assign(ui,{kind,taskId:task.id});if(renderNow){stamp();render();}}
+function selectProgress(kind=ui.kind,renderNow=true){const task=latestUnlockedTask(state,kind);Object.assign(ui,{kind,taskId:task.id});if(renderNow){stamp();render();}}
 function rewardTags(task){const r=task.rewards;return `<div class="reward-tags">${r.winGold?`<span>金币 +${num(r.winGold)}</span>`:''}${r.winRecruitPoints?`<span>招募点 +${num(r.winRecruitPoints)}</span>`:''}${task.kind==='gear'?'<span>装备 ×1；≤90秒 ×2</span><span>≤150秒 通关金币 ×2</span>':''}${task.kind==='rogue'?`<span>${state.runClears.includes(task.id)?'本轮奖励已领取':'胜利选择强化'}</span>`:''}${!state.firsts.includes(task.id)&&task.kind!=='idle'?'<span>首通招募点 +100</span>':''}</div>`;}
 function missionSummary(task){return `<section class="panel mission-summary"><div class="section-head"><span class="muted">${esc(task.kind==='idle'?task.planet:{gear:'装备任务',rogue:'异常收容'}[task.kind])}</span><span class="tag">${taskStatus(task)}</span></div><h2>${esc(task.name)}</h2><p>${task.kind==='idle'?`${esc(task.resource)} · ${task.step}/5　`:''}三波 · ${taskTime(task)} · ${task.environmentKind?'环境单位':'敌人'}${task.waves.reduce((n,w)=>n+w.enemies.length,0)}名</p>${rewardTags(task)}${!unlocked(task)?`<p class="lock-reason">先完成「${esc(TASKS[task.unlock].name)}」</p>`:''}<div class="actions split">${button('详情','taskDetails')}${button('当前进度','nextTask','',false,'quiet')}</div></section>`;}
 function missionAction(task){return state.pendingBuff?button('先选择强化','nav','data-view="rogue"',false,'primary'):button(unlocked(task)?'出战':'尚未解锁','start',`data-task="${task.id}"`,!unlocked(task),'primary');}
@@ -215,7 +215,7 @@ function roguePage(){const pending=state.pendingBuff;if(pending&&!pending.option
   body:pending?`<h2 class="compact-title">${esc(TASKS[pending.taskId].name)}</h2><p class="muted">选择一份本轮强化</p><div class="choice-grid">${pending.options.map(id=>{const buff=BUFF_BY_ID[id];return button(`<strong>${buff.name}</strong><p>${esc(buffDisplay(id).summary)}</p>`,'selectBuff',`data-buff="${id}"`,false,`choice-card ${ui.selectedBuff===id?'selected':''}`);}).join('')}</div>${ui.selectedBuff?`<section class="panel selected-effect">${ownedBuffText(ui.selectedBuff)}</section>`:''}`:'<section class="panel empty"><h2>暂无待选强化</h2></section>',
   actions:button(`已有强化 ${state.buffs.length}`,'buffArchive')+(pending?button('确认选择','confirmBuff','',!ui.selectedBuff,'primary'):button('前往收容','category','data-kind="rogue"',false,'primary')),
 };}
-const resetDetails=()=>'<ul class="consequences"><li>保留特工、星级、碎片、招募点、装备收藏及挂机装备暂存；挂机来源保留历史最高通关。</li><li>全部装备回到1级，本轮强化投入清零，之后分解不再返还这些投入。</li><li>任务进度与本轮收容强化清空。</li><li>当前金币重置为1600；下一轮加点和搜集倾向立即生效。</li></ul>';
+const resetDetails=()=>'<ul class="consequences"><li>保留特工、星级、碎片、招募点、装备收藏及挂机装备暂存；挂机来源保留历史最高通关。</li><li>已解锁的资源、装备和收容副本保持开放。</li><li>全部装备回到1级，本轮强化投入清零，之后分解不再返还这些投入。</li><li>本轮通关进度、挂机金币/招募点产速与收容强化重置；回溯贡献按新一轮实际通关计算。</li><li>当前金币重置为1600；下一轮加点和搜集倾向立即生效。</li></ul>';
 function rebirthPlan(){if(allocation===null)allocation=Object.fromEntries(Object.entries(state.talents).map(([id,t])=>[id,t.level]));try{return {plan:allocationPreview(state,allocation)};}catch(e){return {error:e.message};}}
 function qualification(){if(!state.runClears.includes('AX-05'))return `先完成「${TASKS['AX-05'].name}」`;if(state.challenge)return '请先结算或撤回当前行动';if(state.pendingBuff)return '请先选择收容强化';if(state.pendingEquipment.length)return '请先领取自选装备';return '已取得回溯资格';}
 function rebirthPage(){const preview=rebirthPreview(state),{plan,error}=rebirthPlan();let body=`<section class="panel rebirth-summary"><strong>预计获得 ${formatInteger(preview.points)} 回溯点</strong><small>${qualification()}</small></section><div class="tabs">${button('下一轮加点','rebirthTab','data-tab="plan"',false,ui.rebirthTab==='plan'?'selected':'')}${button('保留与重置','rebirthTab','data-tab="rules"',false,ui.rebirthTab==='rules'?'selected':'')}</div>`;
@@ -448,7 +448,7 @@ async function handle(action,el){
   if(action==='skipReveal'){advanceReveal(true);return;}
   if(action==='heroGear'){closeSheet(()=>navigate('gear',{selectedHero:d.hero,gearTab:'wear',gearFilterSlot:null}));return;}
   if(action==='pickHero'){closeSheet(()=>updateUI({selectedHero:d.hero,page:0}));return;}
-  if(action==='category'){const task=ui.kind===d.kind?currentTask():CATALOG[d.kind][Math.min(CATALOG[d.kind].length-1,state.progress[d.kind])];navigate('tasks',{kind:d.kind,taskId:task.id});return;}
+  if(action==='category'){const task=ui.kind===d.kind?currentTask():latestUnlockedTask(state,d.kind);navigate('tasks',{kind:d.kind,taskId:task.id});return;}
   if(action==='nextTask'){selectProgress();return;}
   if(action==='adjacentTask'){const list=CATALOG[ui.kind],index=list.findIndex(t=>t.id===ui.taskId)+Number(d.delta);if(list[index])updateUI({taskId:list[index].id});return;}
   if(action==='task'){updateUI({taskId:d.task});return;}

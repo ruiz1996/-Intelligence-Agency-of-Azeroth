@@ -1,4 +1,4 @@
-import { DATA, RULE_VERSION, SCHEMA, HEROES, HERO_BY_ID, TASKS, CATALOG, TEMPLATE_BY_ID, MAX_INVENTORY, BUFF_BY_ID, TALENTS, TALENT_BY_ID, templateSlots, talentBonus, chosenBuffs } from './catalog.js';
+import { DATA, RULE_VERSION, SCHEMA, HEROES, HERO_BY_ID, TASKS, CATALOG, TEMPLATE_BY_ID, MAX_INVENTORY, BUFF_BY_ID, TALENTS, TALENT_BY_ID, templateSlots, talentBonus, chosenBuffs, taskUnlocked } from './catalog.js';
 import { GameError, requireRule, clone, uid, random, weighted, natural, SCALE, decimalUnits, walletUnits, credit, spend, ceilDiv } from './primitives.js';
 import { makeItem, canEquip, upgradeCost, rollEquipment, salvageValue, templateAvailable } from './equipment.js';
 import { heroStats } from './stats.js';
@@ -133,7 +133,7 @@ export function act(input,action,now=Date.now(),rng=random) {
       s.items=s.items.filter(i=>!ids.includes(i.id));credit(s,'gold',coins);result={coins:coins.toString(),count:ids.length};break;
     }
     case 'start': {
-      requireRule(!s.pendingBuff,'请先完成异常强化选择');const task=TASKS[action.taskId];requireRule(task,'任务不存在');requireRule(task.unlock==='initial'||s.runClears.includes(task.unlock),'请先完成前置任务');
+      requireRule(!s.pendingBuff,'请先完成异常强化选择');const task=TASKS[action.taskId];requireRule(task,'任务不存在');requireRule(taskUnlocked(s,task),'请先完成前置任务');
       if(task.kind==='gear')space(s,2+(!s.firsts.includes(task.id)&&task.rewards.historicalSelectableEquipment?1:0));
       const heroes=s.formation.map((id,slot)=>id?{id,slot,...heroStats(s,id)}:null).filter(Boolean);requireRule(heroes.length,'请先编队');
       s.challenge={id:uid(),taskId:task.id,cycle:s.cycle,startedAt:now,rule:RULE_VERSION,balanceRevision:DATA.balanceRevision,seed:Math.floor(rng()*4294967296),heroes,buffs:chosenBuffs(s),bonuses:Object.fromEntries(TALENTS.map(t=>[t.effect,talentBonus(s,t.effect)]))};result={challenge:s.challenge};break;
