@@ -72,7 +72,7 @@ function closeSheet(after){
   if(!sheet){after?.();return;}
   if(busy){toast('正在保存，请稍候');return;}
   if(sheet.type==='reveal'){advanceReveal(true);return;}
-  if(['result','recruits'].includes(sheet.type))client.acknowledgePresentation();
+  if(['result','recruits','idleGearResult'].includes(sheet.type))client.acknowledgePresentation();
   afterBack=after||null;history.back();
 }
 function updateUI(patch){rememberScroll();Object.assign(ui,patch);stamp();render();}
@@ -80,7 +80,7 @@ window.addEventListener('popstate',event=>{
   const target=event.state?.ax?event.state:{ui:{...defaults},sheet:null};
   if(busy){history.pushState(routeState(),'','#'+ui.view);toast('正在保存，请稍候');return;}
   if(sheet?.type==='reveal'){advanceReveal(true);return;}
-  if(['result','recruits'].includes(sheet?.type)&&target.sheet?.data?.receiptId!==sheet.data.receiptId)client.acknowledgePresentation();
+  if(['result','recruits','idleGearResult'].includes(sheet?.type)&&target.sheet?.data?.receiptId!==sheet.data.receiptId)client.acknowledgePresentation();
   if(target.sheet?.data?.receiptId&&target.sheet.data.receiptId!==client.presentation?.opId)target.sheet=null;
   if(!target.sheet&&target.ui.view!==ui.view&&(battle||ui.view==='formation'&&draftDirty())){
     history.pushState(routeState(),'','#'+ui.view);
@@ -123,7 +123,7 @@ function success(action,result){
   if(action.type==='rebirth'){allocation=null;marked.clear();if(!unlocked(currentTask()))selectProgress(ui.kind,false);transition('home',{},true);toast('新的行动开始，加点已生效');return;}
   if(action.type==='buff'){ui.selectedBuff=null;transition('rogue',{},true);toast('强化已生效');return;}
   if(action.type==='abandon'){const target=sheet?.type==='retreat'?sheet.data:{next:'tasks'},recent=client.recentBattle,show=battle||recent?.challengeId===action.challengeId;stopBattle();transition(target.next||'tasks',target.patch||{},true);if(show&&recent)openSheet('result',{taskId:recent.taskId,outcome:'retreat',report:recent.report,tab:'stats'});else toast('已撤回行动');return;}
-  if(result.outcome||result.recruits){showReceipt();return;}
+  if(result.outcome||result.recruits||result.gearItems?.length){showReceipt();return;}
   if(action.type==='salvage'){marked.clear();transition('gear',{gearTab:'bag'},true);toast(`分解完成，获得${formatInteger(result.coins)}金币`);return;}
   if(action.type==='selectEquipment'){sheet=null;stamp();render();toast('获得'+itemName(result.item));return;}
   if(action.type==='exchange'||action.type==='recycleShards'){sheet=null;stamp();render();toast('碎片兑换完成');return;}
@@ -143,7 +143,7 @@ function showReceipt(){
   const result=receipt.result,heroes=revealHeroes(result);
   if(result.outcome&&ui.view!=='tasks'){transition('tasks',{taskId:result.taskId,kind:TASKS[result.taskId].kind},true);}
   else {if(result.outcome){ui.taskId=result.taskId;ui.kind=TASKS[result.taskId].kind;}render();}
-  openSheet(receipt.index<heroes.length?'reveal':result.outcome?'result':'recruits',{...result,receiptId:receipt.opId,hero:heroes[receipt.index],index:receipt.index,total:heroes.length},!!sheet);
+  openSheet(receipt.index<heroes.length?'reveal':result.outcome?'result':result.gearItems?'idleGearResult':'recruits',{...result,receiptId:receipt.opId,hero:heroes[receipt.index],index:receipt.index,total:heroes.length},!!sheet);
 }
 function advanceReveal(skipAll=false){
   const receipt=client.presentation;if(!receipt){sheet=null;stamp();renderSheet();return;}
@@ -255,6 +255,11 @@ function modalContent(){
     case 'agentArchive': title='情报档案';body=`<div class="archive-grid">${HEROES.filter(h=>!own(h.id)).map(h=>`<article class="sealed-file"><small>档案 ${String(HEROES.indexOf(h)+1).padStart(2,'0')}</small><span aria-hidden="true">AX</span><strong>封存档案</strong>${archiveClues(h,state)}</article>`).join('')||'<p>全部特工已归档。</p>'}</div>`;actions=button('概率详情','probabilities')+button('完成','close');break;
     case 'reveal': {const h=HERO_BY_ID[d.hero];if(!h||client.presentation?.opId!==d.receiptId)return {title:'招募结果',body:'<p>结果已查看。</p>',actions};title='新特工情报';body=`<div class="reveal-stage reveal-${revealStyle(h).kind}" style="--reveal-color:${revealStyle(h).color}" data-reveal="${d.receiptId}-${d.index}"><div class="reveal-seal" aria-hidden="true"><span>AX</span><strong>封存档案</strong></div><article class="reveal-card"><img src="${art(h.id)}" alt="${h.name}"><div><small>${revealStyle(h).label} · ${d.index+1}/${d.total}</small><h3>${h.name}</h3><p>${roleText(h)}</p></div></article><i class="reveal-scan" aria-hidden="true"></i></div>`;actions=button('跳过','skipReveal')+button('继续','advanceReveal','',false,'primary');break;}
     case 'recruits': title='特工报到';body=`<div class="recruit-results">${d.recruits.map(x=>`<article><img src="${art(x.hero,true)}" alt="${HERO_BY_ID[x.hero].name}"><strong>${HERO_BY_ID[x.hero].name}</strong><span>${x.new?'新特工 · 一星':'+10碎片'}</span></article>`).join('')}</div>`;break;
+    case 'idleGearResult': {
+      title='获得挂机装备';
+      body=`<p>已领取 <strong>${d.gearCount}件</strong>，全部放入背包。</p>${d.gearRemaining?`<p class="idle-loot-remaining">背包空间不足，剩余${d.gearRemaining}件继续暂存，腾出空间后可再领取。</p>`:''}<div class="reward-tags">${QUALITY.map((name,q)=>{const count=d.gearItems.filter(i=>i.quality===q).length;return count?`<span class="q${q}">${name} ×${count}</span>`:'';}).join('')}</div><div class="idle-loot-list">${d.gearItems.map(i=>`<article data-loot-id="${esc(i.id)}">${itemDetails(i)}${i.affixes.length?'':'<small class="muted">无随机词条</small>'}</article>`).join('')}</div>`;
+      actions=button('关闭','close')+button('查看背包','idleGearBag','',false,'primary');break;
+    }
     case 'result': {
       const task=TASKS[d.taskId],next=task&&CATALOG[task.kind][task.index];title=d.history?'最近战报':d.outcome==='win'?'胜利':d.outcome==='retreat'?'已撤退':'失败';
       const tab=d.tab||(d.outcome==='win'?'rewards':'stats');body=(task?'<h3>'+esc(task.name)+'</h3>':'')+'<div class="tabs">'+button('奖励','resultTab','data-tab="rewards"',false,tab==='rewards'?'selected':'')+button('统计','resultTab','data-tab="stats"',false,tab==='stats'?'selected':'')+'</div>';
@@ -312,7 +317,7 @@ function battleStateText(meta,unit){
 }
 function battleAbilities(meta){
   const original=HERO_BY_ID[meta.id],hero=original?.forms?{...original,...original.forms[meta.form||'defense'],id:original.id,form:meta.form||'defense'}:original;
-  if(hero)return '<h3>'+esc(hero.active.name)+'</h3>'+skillCopy(hero)+'<h3>被动</h3>'+skillCopy(hero,true);
+  if(hero)return '<h3>'+esc(hero.active.name)+'</h3>'+skillCopy(hero)+'<h3>'+esc(hero.passive.name)+' · 被动</h3>'+skillCopy(hero,true);
   if(meta.kind==='environment')return '';
   const task=currentTask(),spec=task.waves.flatMap(w=>w.enemies).find(u=>u.id===meta.id)||task.summonTemplate;
   const skill=spec?.skill;if(!skill)return '<p>普通攻击 · 每'+num(spec?.interval||3)+'秒</p>';
@@ -436,6 +441,7 @@ function bindInputs(){
 async function handle(action,el){
   const d=el.dataset;if(busy)return;unlockSound();
   if(action==='close'){closeSheet();return;}
+  if(action==='idleGearBag'){closeSheet(()=>navigate('gear',{gearTab:'bag',quality:'all',gearFilterSlot:null,query:'',page:0}));return;}
   if(action==='retry'){const pending=client.pending;if(pending)await mutate(pending.action,true);else await connect(client.mode);return;}
   if(action==='nav'){navigate(d.view);return;}
   if(action==='back'){if(sheet)closeSheet();else if(ui.view==='home')return;else if(battle)openSheet('retreat',{next:'tasks'});else navigate(ui.view==='formation'?'heroes':'home');return;}

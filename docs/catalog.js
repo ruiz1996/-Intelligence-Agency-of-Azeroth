@@ -2,10 +2,11 @@ import { DATA as BASE_DATA } from './data.js';
 import { NEW_HEROES } from './new-heroes.js';
 import { WEAPON_PERMISSIONS, expandEquipment } from './equipment-expansion.js';
 import {applyBattleRules} from './battle-rules.js';
+import {applyHeroRework} from './hero-reworks.js';
 export {BATTLE_LIMITS,gearRewardBand} from './battle-rules.js';
-export const RULE_VERSION = 'agency-battle-affixes-6';
-const characters=[...BASE_DATA.characters,...NEW_HEROES].map(h=>({...h,weapons:WEAPON_PERMISSIONS[h.id]}));
-export const DATA = {...applyBattleRules(BASE_DATA),characters,equipment:{...expandEquipment(BASE_DATA.equipment),sameTypeAffixWithinItemAllowed:true,affixSampling:'weighted_with_replacement'},balanceRevision:'battle-affixes-v0.7',requiresBattleEngineVersion:RULE_VERSION,
+export const RULE_VERSION = 'agency-hero-reworks-7';
+const characters=[...BASE_DATA.characters,...NEW_HEROES].map(applyHeroRework).map(h=>({...h,weapons:WEAPON_PERMISSIONS[h.id]}));
+export const DATA = {...applyBattleRules(BASE_DATA),characters,equipment:{...expandEquipment(BASE_DATA.equipment),sameTypeAffixWithinItemAllowed:true,affixSampling:'weighted_with_replacement'},balanceRevision:'hero-reworks-v0.10',requiresBattleEngineVersion:RULE_VERSION,
   recruitment:{...BASE_DATA.recruitment,weights:characters.map(h=>({name:h.name,weight:1,chanceBp:10000/characters.length}))}};
 export const SCHEMA = 2;
 export const MAX_INVENTORY = 600;

@@ -91,7 +91,7 @@ export class GameClient{
       }
       // Persist the display receipt before clearing the operation. A refresh can
       // resume a reveal without issuing a new paid action or granting rewards.
-      if(data.result?.recruits||data.result?.outcome){
+      if(data.result?.recruits||data.result?.outcome||data.result?.gearItems?.length){
         const prior=this.presentation;
         if(prior?.opId!==body.opId){const battle=this.recentBattle;this.savePresentation({opId:body.opId,result:{...data.result,...(battle&&body.action.challengeId&&battle.challengeId===body.action.challengeId?{report:battle.report}:{})},index:0});}
       }

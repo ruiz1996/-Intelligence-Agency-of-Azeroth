@@ -20,4 +20,4 @@ export function settleIdleGear(s,now,rng){
   g.carry=!g.source||g.items.length>=IDLE_GEAR_CAPACITY?0:(Math.max(0,at-g.at)+g.carry)%IDLE_GEAR_INTERVAL;g.at=at;
 }
 export function updateIdleGearSource(s,now){const task=historicalGear(s),g=s.idleGear;if(task&&(!g.source||task.index>TASKS[g.source].index)){g.source=task.id;if(!g.unlockedAt)g.unlockedAt=now;}}
-export function claimIdleGear(s){const g=s.idleGear,count=Math.max(0,Math.min(g.items.length,MAX_INVENTORY-s.items.length-s.pendingEquipment.length));s.items.push(...g.items.splice(0,count));return {gearCount:count,gearRemaining:g.items.length};}
+export function claimIdleGear(s){const g=s.idleGear,count=Math.max(0,Math.min(g.items.length,MAX_INVENTORY-s.items.length-s.pendingEquipment.length)),gearItems=g.items.splice(0,count);s.items.push(...gearItems);return {gearCount:count,gearRemaining:g.items.length,gearItems};}

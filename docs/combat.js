@@ -112,7 +112,6 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
       if(has('interference_basic'))n+=param('interference_basic',interferenceUntil>time?'interfered_bonus':'normal_bonus');
       if(u.nextBasicUntil>time)n+=param('next_basic','bonus');
     }
-    if(tag==='active'&&u.id==='xiaocheng'&&alive(enemies).length>=HERO_BY_ID[u.id].passive.minimumAliveEnemies)n+=HERO_BY_ID[u.id].passive.damageBonus;
     return 1+n;
   }
   function extraReduction(target,tag) {
@@ -165,7 +164,7 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
     for(const u of deaths){u.deadCommitted=true;u.key=null;u.cleaveCharges=0;emit('death',{target:u.id});}
     for(const dead of deaths.filter(u=>u.side==='enemy')) {
       for(const d of dead.dots.filter(d=>d.caster.id==='bandebeidiwang'&&d.remaining>0)) {
-        const target=alive(enemies).filter(e=>!e.dots.some(x=>x.caster.id===d.caster.id)).sort((a,b)=>a.row-b.row||distance(dead,a)-distance(dead,b)||a.order-b.order)[0];
+        const target=attackTargets().filter(e=>HERO_BY_ID[d.caster.id].passive.allowsCursedTarget||!e.dots.some(x=>x.caster.id===d.caster.id)).sort((a,b)=>a.row-b.row||distance(dead,a)-distance(dead,b)||a.order-b.order)[0];
         if(target){dead.dots=dead.dots.filter(x=>x!==d);target.dots.push(d);d.target=target;emit('transfer',{source:d.caster.id,oldTarget:dead.id,target:target.id});}
       }
     }
@@ -182,14 +181,14 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
   function addDot(caster,target,spec,multiplier) {
     if(!target||target.hp<=0)return;
     if(spec.maxOwnTargets===1)for(const e of enemies)e.dots=e.dots.filter(d=>d.caster!==caster);
-    target.dots=target.dots.filter(d=>d.caster!==caster);
+    if(spec.sameSourceRefresh!==false)target.dots=target.dots.filter(d=>d.caster!==caster);
     const d={caster,target,remaining:spec.ticks,raw:caster.atk*spec.tickAtkCoefficient*multiplier,interval:spec.tickIntervalSeconds,next:time+spec.firstTickOffsetSeconds};target.dots.push(d);
     const tick=()=>{
       const target=d.target;if(target.hp<=0||!target.dots.includes(d)||d.remaining<=0)return;
       const dealt=damage(caster,target,d.raw,'periodic',false,1);if(caster.id==='echoz'&&dealt.hp+dealt.absorbed>0)caster.dotStacks=Math.min(HERO_BY_ID[caster.id].passive.maxStacks,caster.dotStacks+1);
-      d.remaining--;d.next=time+d.interval;if(d.remaining>0)schedule(d.next,1,tick);else target.dots=target.dots.filter(x=>x!==d);
+      d.remaining--;d.next=time+d.interval;if(d.remaining>0)scheduleWave(d.next,1,tick);else target.dots=target.dots.filter(x=>x!==d);
     };
-    schedule(d.next,1,tick);
+    scheduleWave(d.next,1,tick);
   }
   function targetsFor(caster,max,around=null) { return attackTargets().sort((a,b)=>a.row-b.row||distance(around||caster,a)-distance(around||caster,b)||a.order-b.order).slice(0,max); }
   function active(u) {
@@ -248,11 +247,24 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
       case 'execute_direct_damage':target=lowest(enemies);hit(target,u.atk*a.atkCoefficient*(target.hp/target.maxHp<a.thresholdStrictLessThan?a.executeMultiplier:1));break;
       case 'single_direct_damage':hit(target,u.atk*a.atkCoefficient);break;
       case 'multi_direct_damage': {const targets=targetsFor(u,a.maxTargets,u.id==='jin'?target:null),mult=outgoing(u,'active',target);for(const t of targets)hit(t,u.atk*a.atkCoefficient,true,mult);break;}
+      case 'primary_and_splash_damage': {
+        const secondary=attackTargets().filter(t=>t!==target),attack=u.atk,mult=outgoing(u,'active',target);
+        hit(target,attack*a.primaryAtkCoefficient,true,mult);
+        for(const t of secondary)hit(t,attack*a.secondaryAtkCoefficient,true,mult);
+        break;
+      }
       case 'all_enemy_direct_damage': {const targets=attackTargets(),mult=outgoing(u,'active',target);for(const t of targets)hit(t,u.atk*a.atkCoefficient,true,mult);break;}
       case 'direct_and_dot': {
         const mult=outgoing(u,'active',target),stacks=u.id==='echoz'?u.dotStacks:0;u.dotStacks=0;hit(target,u.atk*(a.atkCoefficient+stacks*(p.directAtkCoefficientPerStack||0)),true,mult);addDot(u,target,a.dot,mult);break;
       }
-      case 'multi_dot':for(const t of targetsFor(u,a.maxTargets))addDot(u,t,a.dot,outgoing(u,'periodic',t));break;
+      case 'multi_dot': {
+        const targets=targetsFor(u,a.maxTargets),layers=attackTargets().length===1?(a.singleTargetLayers||1):1;
+        // Capture all layers before immediate hits. Death transfers move these
+        // same objects without refreshing them or repeating the immediate hit.
+        for(const t of targets)for(let i=0;i<layers;i++)addDot(u,t,a.dot,outgoing(u,'periodic',t));
+        if(a.directAtkCoefficient)for(const t of targets)hit(t,u.atk*a.directAtkCoefficient);
+        break;
+      }
       default:throw new Error('Unhandled active '+a.kind);
     }
     u.casts++;u.cdRemaining=u.cd;u.castAt=time;u.cdReduction=0;
@@ -277,6 +289,9 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
       u.cleaveCharges--;
       if(target.hp>0)damage(u,target,attack*p.mainAtkCoefficient*followupMultiplier,'passive',false,1);
       for(const t of startTargets.filter(t=>t!==target&&t.hp>0).slice(0,p.maxSecondaryTargets))damage(u,t,attack*p.secondaryAtkCoefficient*followupMultiplier,'passive',false,1);
+    }
+    if(p.kind==='basic_all_secondary_splash'&&dealt.hp+dealt.absorbed>0){
+      for(const t of startTargets.filter(t=>t!==target&&t.hp>0))damage(u,t,raw*p.secondaryAtkCoefficient,'passive',false,1);
     }
     if(u.id==='jin'&&u.basics%p.basicCount===0){const other=targetsFor(u,16,target).find(t=>t!==target);if(other)damage(u,other,u.atk*p.atkCoefficient,'passive');}
     if(u.id==='sacred_druid'&&target.hp>0&&target.dots.some(d=>d.caster===u))damage(u,target,u.atk*p.atkCoefficient,'passive');
