@@ -257,7 +257,15 @@ function modalContent(){
       const task=TASKS[d.taskId],next=task&&CATALOG[task.kind][task.index];title=d.history?'最近战报':d.outcome==='win'?'胜利':d.outcome==='retreat'?'已撤退':'失败';
       const tab=d.tab||(d.outcome==='win'?'rewards':'stats');body=(task?'<h3>'+esc(task.name)+'</h3>':'')+'<div class="tabs">'+button('奖励','resultTab','data-tab="rewards"',false,tab==='rewards'?'selected':'')+button('统计','resultTab','data-tab="stats"',false,tab==='stats'?'selected':'')+'</div>';
       body+=tab==='stats'?reportContent(d,button):d.history?'<p>最近战报仅保留统计。</p>':d.outcome==='win'?'<div class="reward-tags"><span>金币 +'+esc(d.gold)+'</span><span>招募点 +'+esc(d.recruit)+'</span></div>'+(d.item?itemDetails(d.item):'')+(d.character?'<p>'+HERO_BY_ID[d.character.hero].name+' · '+(d.character.new?'新特工':'+10碎片')+'</p>':''):'<p>本次未获得奖励</p>';
-      actions=button('返回','close');if(task)actions+=(d.buff?button('选择强化','resultBuff','','','primary'):next&&d.outcome==='win'&&!d.history?button('下一任务','resultNext','data-task="'+next.id+'"',false,'primary'):button('再次挑战','start','data-task="'+task.id+'"',false,'primary'));break;
+      actions=button('返回','close');
+      if(task){
+        if(d.buff)actions+=button('选择强化','resultBuff','','','primary');
+        else{
+          if(next&&d.outcome==='win'&&!d.history)actions+=button('下一任务','resultNext','data-task="'+next.id+'"');
+          actions+=button('再来一次','start','data-task="'+task.id+'"',false,'primary');
+        }
+      }
+      break;
     }
     case 'weaponChanges': {const migration=state.migrations?.[WEAPON_REVISION];title='武器调整记录';body='<p>不符合新许可的装备已卸回背包。物品、等级、词条、锁定和强化投入均保留。</p><ul>'+(migration?.report||[]).map(r=>'<li>'+esc(r.hero?HERO_BY_ID[r.hero].name+' · '+SLOT_NAMES[r.slot]+(item(r.item)?' · '+itemName(item(r.item)):''):r.reason)+'</li>').join('')+'</ul>';actions=button('导出完整档案','export')+button('我知道了','ackWeaponNotice','','','primary');break;}
     case 'salvageQuality': title='按稀有度全部分解';body='<p>包含全背包所有分页，排除已穿戴和锁定装备。</p><div class="menu-list">'+QUALITY.map((q,index)=>{const list=state.items.filter(i=>i.quality===index&&!i.locked&&!equipped(i.id)),coins=list.reduce((n,i)=>n+salvageValue(i,state),0n);return button(q+' · '+list.length+'件 <small>返还 '+formatInteger(coins)+'金币</small>','chooseSalvageQuality','data-quality="'+index+'"',!list.length,'q'+index);}).join('')+'</div>';break;
