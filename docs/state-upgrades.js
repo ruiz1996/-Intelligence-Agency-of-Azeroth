@@ -3,7 +3,7 @@ import {canEquip} from './equipment.js';
 import {WEAPON_REVISION} from './equipment-expansion.js';
 import {clone} from './primitives.js';
 import {initIdleGear} from './idle-equipment.js';
-export function needsStateUpgrade(s){return s.schema===SCHEMA&&(!s.migrations?.[WEAPON_REVISION]||!s.idleGear||HEROES.some(h=>!s.heroes[h.id]||!s.equipment[h.id]));}
+export function needsStateUpgrade(s){return s.schema===SCHEMA&&(s.rule!==RULE_VERSION||!s.migrations?.[WEAPON_REVISION]||!s.idleGear||HEROES.some(h=>!s.heroes[h.id]||!s.equipment[h.id]));}
 export function upgradeState(old,now=Date.now()){
   const s=clone(old);if(s.schema!==SCHEMA)return s;
   for(const h of HEROES){s.heroes[h.id]??={owned:false,star:1,shards:0};s.equipment[h.id]??=Array(15).fill(null);}

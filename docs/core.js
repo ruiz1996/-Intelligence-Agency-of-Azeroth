@@ -5,6 +5,8 @@ import { heroStats } from './stats.js';
 import { recommendEquipment } from './equipment-recommendation.js';
 import { upgradeState } from './state-upgrades.js';
 import { WEAPON_REVISION } from './equipment-expansion.js';
+import {simulate} from './combat.js';
+import {gearRewardBand} from './battle-rules.js';
 export { WEAPON_REVISION } from './equipment-expansion.js';
 import { initIdleGear, settleIdleGear, updateIdleGearSource, claimIdleGear } from './idle-equipment.js';
 export * from './equipment-recommendation.js';
@@ -14,7 +16,7 @@ export * from './catalog.js';
 export * from './primitives.js';
 export * from './equipment.js';
 export * from './stats.js';
-export { simulate, chooseTarget } from './combat.js';
+export { simulate, simulateChunks, chooseTarget } from './combat.js';
 const log=(s,text,now)=>{s.history.unshift({at:now,text});s.history=s.history.slice(0,30);};
 export function createState(now=Date.now()) {
   const s={schema:SCHEMA,rule:RULE_VERSION,cycle:1,rebirths:0,wallet:{gold:decimalUnits(1600).toString(),recruit:decimalUnits(500).toString()},lastIdleAt:now,
@@ -132,21 +134,28 @@ export function act(input,action,now=Date.now(),rng=random) {
     }
     case 'start': {
       requireRule(!s.pendingBuff,'请先完成异常强化选择');const task=TASKS[action.taskId];requireRule(task,'任务不存在');requireRule(task.unlock==='initial'||s.runClears.includes(task.unlock),'请先完成前置任务');
-      if(task.kind==='gear')space(s,1+(!s.firsts.includes(task.id)&&task.rewards.historicalSelectableEquipment?1:0));
+      if(task.kind==='gear')space(s,2+(!s.firsts.includes(task.id)&&task.rewards.historicalSelectableEquipment?1:0));
       const heroes=s.formation.map((id,slot)=>id?{id,slot,...heroStats(s,id)}:null).filter(Boolean);requireRule(heroes.length,'请先编队');
       s.challenge={id:uid(),taskId:task.id,cycle:s.cycle,startedAt:now,rule:RULE_VERSION,balanceRevision:DATA.balanceRevision,seed:Math.floor(rng()*4294967296),heroes,buffs:chosenBuffs(s),bonuses:Object.fromEntries(TALENTS.map(t=>[t.effect,talentBonus(s,t.effect)]))};result={challenge:s.challenge};break;
     }
     case 'abandon': requireRule(s.challenge,'没有进行中的挑战');s.challenge=null;result={abandoned:true};break;
     case 'settle': {
       const c=s.challenge;requireRule(c&&c.id===action.challengeId&&c.cycle===s.cycle,'挑战已结算或失效');requireRule(c.rule===RULE_VERSION&&c.balanceRevision===DATA.balanceRevision,'规则已更新，请重新挑战');requireRule(['win','loss'].includes(action.outcome),'结算结果无效');
-      const task=TASKS[c.taskId],r=task.rewards;s.challenge=null;result={taskId:task.id,outcome:action.outcome,gold:'0',recruit:'0'};if(action.outcome==='loss'){log(s,`${task.name} · 行动失败`,now);break;}
+      const task=TASKS[c.taskId],r=task.rewards;
+      // Timed loot is determined from the saved server-created challenge. Client
+      // outcome, elapsed wall time and supplied duration cannot set its tier.
+      const verified=task.kind==='gear'?simulate(c,{trace:false}):null;
+      if(verified)requireRule(verified.outcome===action.outcome,'战斗结果与规则校验不一致，请刷新后重新挑战');
+      s.challenge=null;result={taskId:task.id,outcome:action.outcome,gold:'0',recruit:'0',...(verified?{duration:verified.duration}:{})};if(action.outcome==='loss'){log(s,`${task.name} · 行动失败`,now);break;}
       if(task.kind==='idle')claimIdle(s,now);const first=!s.firsts.includes(task.id),runFirst=!s.runClears.includes(task.id);
       if(runFirst){s.runClears.push(task.id);s.progress[task.kind]=Math.max(s.progress[task.kind],task.index);}
       if(first){s.firsts.push(task.id);if(!s.historyContribution.includes(task.id)){s.historyContribution.push(task.id);s.pendingHistoryContribution.push(task.id);}}
       let gold=r.winGold||0,recruit=r.winRecruitPoints||0;
       if(task.kind==='idle'&&first){gold+=r.historicalUnitBonusGold;recruit+=r.historicalUnitBonusRecruitPoints;if(r.historicalGuaranteedCharacter)result.character=grantHero(s,HEROES.find(h=>h.name===r.historicalGuaranteedCharacter).id);}
       if(task.kind==='gear'){
-        space(s,1+(first&&r.historicalSelectableEquipment?1:0));const item=rollEquipment(task,s,rng);s.items.push(item);result.item=item;
+        const band=gearRewardBand(verified.duration);requireRule(band,'装备奖励时限无效');
+        space(s,band.randomEquipmentCount+(first&&r.historicalSelectableEquipment?1:0));
+        const items=Array.from({length:band.randomEquipmentCount},()=>rollEquipment(task,s,rng));s.items.push(...items);Object.assign(result,{items,item:items[0],rewardBand:band.id,goldMultiplier:band.normalWinGoldMultiplier});gold*=band.normalWinGoldMultiplier;
         if(first){recruit+=r.historicalFirstClearRecruitPoints;if(r.historicalSelectableEquipment)s.pendingEquipment.push({taskId:task.id,...r.historicalSelectableEquipment});}
       }
       if(task.kind==='rogue'){

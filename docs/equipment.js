@@ -4,7 +4,7 @@ export function makeItem(templateId, quality=0, rng=random) {
   const t=TEMPLATE_BY_ID[templateId]; requireRule(t,'装备模板不存在'); requireRule(Number.isInteger(quality)&&quality>=0&&quality<=4,'品质无效');
   const tier=DATA.equipment.tiers[t.tier-1], weights=[...t.weights], keys=['atk','hp','def','crit','critDamage']; const affixes=[];
   for(let i=0;i<quality;i++) {
-    const a=weighted(weights,rng); weights[a]=0;
+    const a=weighted(weights,rng); // Independent draws with replacement, including repeated types.
     const range=tier.range[a===3?'crit':a===4?'critDamage':'normal'];
     const draw=()=>Math.round(range[0]*10)+Math.floor(rng()*(Math.round((range[1]-range[0])*10)+1));
     affixes.push({stat:keys[a],value:(draw()+(t.twoHand?draw():0))/1000});

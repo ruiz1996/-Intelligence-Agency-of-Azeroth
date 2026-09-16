@@ -4,7 +4,7 @@ import {
   heroStats,heroDefinition,upgradeCost,salvageValue,canEquip,templateSlots,idleRates,idlePreview,
   rebirthPreview,allocationPreview,pointCost,act,equipmentType,templateAvailable,idleGearPreview,WEAPON_REVISION,
 } from './core.js';
-import {battleReport} from './battle-report.js';
+import {createBattleReport} from './battle-report.js';
 import {archiveClues,idleGearCard,idleGearTime,reportContent,revealStyle,revealSound,soundEnabled,toggleSound,unlockSound} from './feature-v5.js';
 import {GameClient,cloudReady,selectedMode,setLocal,signOut,login} from './api.js';
 import {esc,num,percent,art,series,itemName,itemStatsText,slotIcons,skillText,passiveText,mechanicText,roleText,skillCopy} from './presentation.js';
@@ -36,6 +36,8 @@ const ownedHeroes=()=>HEROES.filter(h=>own(h.id));
 const equipped=id=>Object.entries(state.equipment).find(([,slots])=>slots.includes(id))?.[0];
 const item=id=>state.items.find(i=>i.id===id);
 const currentTask=()=>TASKS[ui.taskId]||TASKS.R001;
+const taskTime=task=>task.limitSeconds===null?'不限时':'共'+task.limitSeconds+'秒';
+const battleTime=elapsed=>elapsed.toFixed(1)+(currentTask().limitSeconds===null?'秒 · 不限时':' / '+currentTask().limitSeconds+'秒');
 const unlocked=t=>t.unlock==='initial'||state.runClears.includes(t.unlock);
 const stars=id=>'★'.repeat(state.heroes[id].star);
 const draftDirty=()=>formationDraft&&JSON.stringify(formationDraft)!==JSON.stringify(state.formation);
@@ -172,8 +174,8 @@ function render(){
 
 function taskStatus(task){if(!unlocked(task))return '未解锁';if(state.pendingBuff?.taskId===task.id)return '强化待选';if(state.runClears.includes(task.id))return TASKS[task.id].kind==='rogue'?'本轮强化已领取':'已完成';return '可挑战';}
 function selectProgress(kind=ui.kind,renderNow=true){const task=CATALOG[kind][Math.min(CATALOG[kind].length-1,state.progress[kind])];Object.assign(ui,{kind,taskId:task.id});if(renderNow){stamp();render();}}
-function rewardTags(task){const r=task.rewards;return `<div class="reward-tags">${r.winGold?`<span>金币 +${num(r.winGold)}</span>`:''}${r.winRecruitPoints?`<span>招募点 +${num(r.winRecruitPoints)}</span>`:''}${task.kind==='gear'?'<span>装备 ×1</span>':''}${task.kind==='rogue'?`<span>${state.runClears.includes(task.id)?'本轮奖励已领取':'胜利选择强化'}</span>`:''}${!state.firsts.includes(task.id)&&task.kind!=='idle'?'<span>首通招募点 +100</span>':''}</div>`;}
-function missionSummary(task){return `<section class="panel mission-summary"><div class="section-head"><span class="muted">${esc(task.kind==='idle'?task.planet:{gear:'装备任务',rogue:'异常收容'}[task.kind])}</span><span class="tag">${taskStatus(task)}</span></div><h2>${esc(task.name)}</h2><p>${task.kind==='idle'?`${esc(task.resource)} · ${task.step}/5　`:''}三波 · 共90秒 · ${task.environmentKind?'环境单位':'敌人'}${task.waves.reduce((n,w)=>n+w.enemies.length,0)}名</p>${rewardTags(task)}${!unlocked(task)?`<p class="lock-reason">先完成「${esc(TASKS[task.unlock].name)}」</p>`:''}<div class="actions split">${button('详情','taskDetails')}${button('当前进度','nextTask','',false,'quiet')}</div></section>`;}
+function rewardTags(task){const r=task.rewards;return `<div class="reward-tags">${r.winGold?`<span>金币 +${num(r.winGold)}</span>`:''}${r.winRecruitPoints?`<span>招募点 +${num(r.winRecruitPoints)}</span>`:''}${task.kind==='gear'?'<span>装备 ×1；≤90秒 ×2</span><span>≤150秒 通关金币 ×2</span>':''}${task.kind==='rogue'?`<span>${state.runClears.includes(task.id)?'本轮奖励已领取':'胜利选择强化'}</span>`:''}${!state.firsts.includes(task.id)&&task.kind!=='idle'?'<span>首通招募点 +100</span>':''}</div>`;}
+function missionSummary(task){return `<section class="panel mission-summary"><div class="section-head"><span class="muted">${esc(task.kind==='idle'?task.planet:{gear:'装备任务',rogue:'异常收容'}[task.kind])}</span><span class="tag">${taskStatus(task)}</span></div><h2>${esc(task.name)}</h2><p>${task.kind==='idle'?`${esc(task.resource)} · ${task.step}/5　`:''}三波 · ${taskTime(task)} · ${task.environmentKind?'环境单位':'敌人'}${task.waves.reduce((n,w)=>n+w.enemies.length,0)}名</p>${rewardTags(task)}${!unlocked(task)?`<p class="lock-reason">先完成「${esc(TASKS[task.unlock].name)}」</p>`:''}<div class="actions split">${button('详情','taskDetails')}${button('当前进度','nextTask','',false,'quiet')}</div></section>`;}
 function missionAction(task){return state.pendingBuff?button('先选择强化','nav','data-view="rogue"',false,'primary'):button(unlocked(task)?'出战':'尚未解锁','start',`data-task="${task.id}"`,!unlocked(task),'primary');}
 function homePage(){const reward=idlePreview(state,client.now()),rate=idleRates(state),task=currentTask();return {
   body:`<div class="home-layout"><section class="panel income-panel"><div><small>待领取金币</small><strong id="idle-gold">${money(reward.gold)}</strong><span id="idle-recruit">招募点 ${money(reward.recruit)}</span></div>${button('领取','claim','',false,'primary')}<small class="income-rate">每分钟 ${num(rate.gold)}金币 · ${num(rate.recruit)}招募点</small></section>${idleGearCard(state,client.now(),button)}<section class="panel squad-panel"><div class="section-head"><h2>出战小队</h2>${button('布阵','nav','data-view="formation"',false,'quiet')}</div><div class="squad-grid">${state.formation.filter(Boolean).map(id=>button(`<img src="${art(id,true)}" alt="${HERO_BY_ID[id].name}"><span>${HERO_BY_ID[id].name}</span>`,'hero',`data-hero="${id}"`)).join('')}</div></section><section class="panel continue-card"><small>继续行动</small><h2>${esc(task.name)}</h2>${rewardTags(task)}</section><div class="home-shortcuts">${button('◇ 异常收容','category','data-kind="rogue"')}${button('↶ 时间回溯','nav','data-view="rebirth"')}</div></div>`,
@@ -221,7 +223,7 @@ function rebirthPage(){const preview=rebirthPreview(state),{plan,error}=rebirthP
   return {body,actions:`<span class="bar-note">${error?'调整加点后继续':`下轮剩余 ${formatInteger(plan.remaining)}点`}</span>${button('确认回溯','rebirth','',!preview.eligible||!!error,'primary')}`};
 }
 function battleHeader(){return button(esc(currentTask().name),'taskDetails','title="'+esc(currentTask().name)+'"',false,'battle-title')+'<span id="battle-wave">第'+battle.wave+' / 3波</span>'+button(battle.speed+'×','cycleSpeed','aria-label="切换倍速"')+button('撤退','retreat');}
-function battlePage(){return {body:`<div class="battle-progress"><div class="wave-pips" aria-label="战斗波次">${[1,2,3].map(n=>'<i data-wave="'+n+'" class="'+(n<=battle.wave?'reached':'')+'"></i>').join('')}</div><span id="battle-time">${battle.elapsed.toFixed(1)} / 90秒</span></div><div class="battlefield scene-${battleScene(currentTask())}" data-motion="${reducedMotion()?'reduced':'full'}"><div class="scene-far" aria-hidden="true"></div><div class="scene-floor" aria-hidden="true"></div><div class="scene-haze" aria-hidden="true"></div><div class="enemy-grid" id="enemy-grid" aria-label="敌方阵容"></div><div id="battle-announcement" class="battle-announcement" aria-live="off"></div><div class="ally-grid" id="ally-grid" aria-label="我方阵容">${Array.from({length:6},(_,index)=>'<div class="empty-battle-slot" aria-hidden="true" style="grid-column:'+(index%3+1)+';grid-row:'+(Math.floor(index/3)+1)+'"></div>').join('')}</div><div class="battle-effects" aria-hidden="true"></div></div>`,actions:button('记录','battleLog')+button('强化','buffArchive')+button('显示','battleDisplay')};}
+function battlePage(){return {body:`<div class="battle-progress"><div class="wave-pips" aria-label="战斗波次">${[1,2,3].map(n=>'<i data-wave="'+n+'" class="'+(n<=battle.wave?'reached':'')+'"></i>').join('')}</div><span id="battle-time">${battleTime(battle.elapsed)}</span></div><div class="battlefield scene-${battleScene(currentTask())}" data-motion="${reducedMotion()?'reduced':'full'}"><div class="scene-far" aria-hidden="true"></div><div class="scene-floor" aria-hidden="true"></div><div class="scene-haze" aria-hidden="true"></div><div class="enemy-grid" id="enemy-grid" aria-label="敌方阵容"></div><div id="battle-announcement" class="battle-announcement" aria-live="off"></div><div class="ally-grid" id="ally-grid" aria-label="我方阵容">${Array.from({length:6},(_,index)=>'<div class="empty-battle-slot" aria-hidden="true" style="grid-column:'+(index%3+1)+';grid-row:'+(Math.floor(index/3)+1)+'"></div>').join('')}</div><div class="battle-effects" aria-hidden="true"></div></div>`,actions:button('记录','battleLog')+button('强化','buffArchive')+button('显示','battleDisplay')};}
 const pages={home:homePage,tasks:tasksPage,heroes:heroesPage,formation:formationPage,gear:gearPage,recruit:recruitPage,rogue:roguePage,rebirth:rebirthPage,battle:battlePage};
 
 function statsList(stats){return `<dl class="stats-list">${Object.entries(stats).filter(([k,v])=>AFFIX_NAMES[k]&&typeof v==='number').map(([k,v])=>`<div><dt>${AFFIX_NAMES[k]}</dt><dd>${k.endsWith('Pct')||['crit','haste','dodge','critDamage','lifesteal','reduction'].includes(k)?percent(v):num(v)}</dd></div>`).join('')}</dl>`;}
@@ -229,12 +231,12 @@ const statValue=(key,value)=>['crit','critDamage'].includes(key)?percent(value):
 function ownedBuffText(id,enhanced=state.enhancedBuff===id){const b=buffDisplay(id,enhanced);return esc(b.summary)+(b.detail?`<details class="effect-details"><summary>效果详情</summary><p>${esc(b.detail)}</p></details>`:'');}
 function itemDetails(i){return `<div class="item-detail"><strong class="q${i.quality}">${esc(itemName(i))}</strong><p>${equipmentType(i)} · ${series(TEMPLATE_BY_ID[i.templateId].tier)} · ${QUALITY[i.quality]} · ${i.level}级</p><p>${itemStatsText(i)}</p>${i.affixes.map(a=>`<p>${AFFIX_NAMES[a.stat]||AFFIX_NAMES[a.key]||esc(a.stat||a.key)} +${percent(a.value)}</p>`).join('')}</div>`;}
 function upgradePlan(i,count){let paid=0n,levels=0,total=0n;const draft={...i};for(let n=0;n<count;n++){const cost=upgradeCost(draft,state);total+=cost;if(paid+cost<=BigInt(state.wallet.gold)/SCALE){paid+=cost;levels++;}draft.level=(BigInt(draft.level)+1n).toString();}return {paid,levels,total};}
-function taskDetails(task){const r=task.rewards;return `${rewardTags(task)}<h3>敌方情报</h3><p>三波 · 共90秒 · ${task.environmentKind?'总余势 '+num(task.totalEnvironmentEnergy):'总生命 '+num(task.totalBaseHp)}</p>${task.environmentKind?'<p>不可攻击；每次攻击完成后余势减少100，全部耗尽且仍有队员存活即通过。</p>':''}${task.waves.map(w=>`<h3>第${w.index}波</h3><div class="enemy-preview">${w.enemies.map(e=>`<span><strong>${esc(e.name)}</strong><small>${e.type==='environment'?'环境 · 余势'+num(e.hp):e.type==='boss'?'首领 · 2×2':e.type==='elite'?'精英 · 2×1':'普通 · 1×1'}</small><small>攻击 ${num(e.atk)}</small></span>`).join('')}</div>`).join('')}${task.kind==='rogue'?`<h3>收容机制</h3><p>${mechanicText(task)}</p><p>本轮限领一次。</p>`:''}${task.kind==='gear'?`<h3>装备掉落</h3><p>${series(r.tier)}系列${r.nextTierChanceBp?`，有${r.nextTierChanceBp/100}%概率提升为${series(r.tier+1)}系列`:''}</p><p>${r.qualityChanceBp.map((p,i)=>QUALITY[i]+' '+p/100+'%').join(' · ')}</p>`:''}${!state.firsts.includes(task.id)?`<h3>首次完成奖励</h3><p>${task.kind==='idle'?`金币 ${num(r.historicalUnitBonusGold||0)} · 招募点 ${num(r.historicalUnitBonusRecruitPoints||0)}`:'招募点 100'}${r.historicalGuaranteedCharacter?` · ${esc(r.historicalGuaranteedCharacter)}`:''}${r.historicalSelectableEquipment?' · 行旅绿色装备自选':''}</p>`:''}<p class="muted">本轮回溯贡献：${state.runClears.includes(task.id)?'已计入':num(task.rebirthContributionSubunits/240)+'点'}。</p>`;}
+function taskDetails(task){const r=task.rewards;return `${rewardTags(task)}<h3>敌方情报</h3><p>三波 · ${taskTime(task)} · ${task.environmentKind?'总余势 '+num(task.totalEnvironmentEnergy):'总生命 '+num(task.totalBaseHp)}</p>${task.environmentKind?'<p>不可攻击；每次攻击完成后余势减少100，全部耗尽且仍有队员存活即通过。</p>':''}${task.waves.map(w=>`<h3>第${w.index}波</h3><div class="enemy-preview">${w.enemies.map(e=>`<span><strong>${esc(e.name)}</strong><small>${e.type==='environment'?'环境 · 余势'+num(e.hp):e.type==='boss'?'首领 · 2×2':e.type==='elite'?'精英 · 2×1':'普通 · 1×1'}</small><small>攻击 ${num(e.atk)}</small></span>`).join('')}</div>`).join('')}${task.kind==='rogue'?`<h3>收容机制</h3><p>${mechanicText(task)}</p><p>本轮限领一次。</p>`:''}${task.kind==='gear'?`<h3>装备掉落</h3><p>≤90秒共2件随机装备；≤150秒普通通关金币翻倍，两项可叠加。历史首通自选另计。</p><p>${series(r.tier)}系列${r.nextTierChanceBp?`，有${r.nextTierChanceBp/100}%概率提升为${series(r.tier+1)}系列`:''}</p><p>${r.qualityChanceBp.map((p,i)=>QUALITY[i]+' '+p/100+'%').join(' · ')}</p>`:''}${!state.firsts.includes(task.id)?`<h3>首次完成奖励</h3><p>${task.kind==='idle'?`金币 ${num(r.historicalUnitBonusGold||0)} · 招募点 ${num(r.historicalUnitBonusRecruitPoints||0)}`:'招募点 100'}${r.historicalGuaranteedCharacter?` · ${esc(r.historicalGuaranteedCharacter)}`:''}${r.historicalSelectableEquipment?' · 行旅绿色装备自选':''}</p>`:''}<p class="muted">本轮回溯贡献：${state.runClears.includes(task.id)?'已计入':num(task.rebirthContributionSubunits/240)+'点'}。</p>`;}
 function modalContent(){
   const {type,data:d}=sheet;let title='',body='',actions=button('完成','close');
   switch(type){
     case 'more': title='更多';body=`<p class="account-status">${client.mode==='cloud'?'云档案已连接':'本机档案'} · 第${state.cycle}轮行动</p><div class="menu-list">${button('刷新档案','reload','',!!battle)}${button('导出存档','export')}${button('玩法帮助','help')}${button('版本信息','about')}${button('退出账号','logout','',!!battle)}</div>`;body+=button('最近战报','recentBattle','','', 'wide')+button(soundEnabled()?'音效：开':'音效：关','toggleSound','','','wide');break;
-    case 'help': title='玩法帮助';body='<p>离线收益无时长上限。每场三波共用90秒，队伍状态持续保留。</p><p>环境单位不可攻击，完成一次攻击后余势减少100。三波完成且仍有队员存活才获胜。</p><p>未结算的战斗需要重新挑战。保存未确认时，重试同步可继续原操作。</p>';break;
+    case 'help': title='玩法帮助';body='<p>离线收益无时长上限。资源行动不限时，装备行动180秒，异常收容120秒；三波共用计时，队伍状态持续保留。</p><p>环境单位不可攻击，完成一次攻击后余势减少100。三波完成且仍有队员存活才获胜。</p><p>未结算的战斗需要重新挑战。保存未确认时，重试同步可继续原操作。</p>';break;
     case 'about': title='版本信息';body=`<p>三波行动 v0.3</p><dl class="stats-list"><div><dt>规则版本</dt><dd>${RULE_VERSION}</dd></div><div><dt>档案版本</dt><dd>${SCHEMA}</dd></div><div><dt>数值版本</dt><dd>${DATA.balanceRevision}</dd></div></dl>`;break;
     case 'taskDetails': title=currentTask().name;body=taskDetails(currentTask());break;
     case 'taskCatalog': title=ui.kind==='gear'?'装备任务目录':'收容任务目录';body=`<div class="task-catalog">${CATALOG[ui.kind].map(t=>button(`<span><strong>${esc(t.name)}</strong><small>${taskStatus(t)}${!unlocked(t)?' · 先完成'+esc(TASKS[t.unlock].name):''}</small></span>${t.id===ui.taskId?'✓':'›'}`,'catalogTask',`data-task="${t.id}"`,false,t.id===ui.taskId?'selected':'')).join('')}</div>`;break;
@@ -256,7 +258,7 @@ function modalContent(){
     case 'result': {
       const task=TASKS[d.taskId],next=task&&CATALOG[task.kind][task.index];title=d.history?'最近战报':d.outcome==='win'?'胜利':d.outcome==='retreat'?'已撤退':'失败';
       const tab=d.tab||(d.outcome==='win'?'rewards':'stats');body=(task?'<h3>'+esc(task.name)+'</h3>':'')+'<div class="tabs">'+button('奖励','resultTab','data-tab="rewards"',false,tab==='rewards'?'selected':'')+button('统计','resultTab','data-tab="stats"',false,tab==='stats'?'selected':'')+'</div>';
-      body+=tab==='stats'?reportContent(d,button):d.history?'<p>最近战报仅保留统计。</p>':d.outcome==='win'?'<div class="reward-tags"><span>金币 +'+esc(d.gold)+'</span><span>招募点 +'+esc(d.recruit)+'</span></div>'+(d.item?itemDetails(d.item):'')+(d.character?'<p>'+HERO_BY_ID[d.character.hero].name+' · '+(d.character.new?'新特工':'+10碎片')+'</p>':''):'<p>本次未获得奖励</p>';
+      body+=tab==='stats'?reportContent(d,button):d.history?'<p>最近战报仅保留统计。</p>':d.outcome==='win'?'<div class="reward-tags"><span>金币 +'+esc(d.gold)+'</span><span>招募点 +'+esc(d.recruit)+'</span></div>'+(d.duration!==undefined?'<p>整场耗时 '+num(d.duration)+'秒'+(d.goldMultiplier===2?' · 通关金币 ×2':'')+'</p>':'')+((d.items||[d.item]).filter(Boolean).map(itemDetails).join(''))+(d.character?'<p>'+HERO_BY_ID[d.character.hero].name+' · '+(d.character.new?'新特工':'+10碎片')+'</p>':''):'<p>本次未获得奖励</p>';
       actions=button('返回','close');
       if(task){
         if(d.buff)actions+=button('选择强化','resultBuff','','','primary');
@@ -384,23 +386,27 @@ function applyFrame(units){
     card.querySelector('.unit-status').innerHTML=statuses.slice(0,3).map(([icon,name])=>'<i title="'+name+'">'+icon+'</i>').join('')+(statuses.length>3?'<i>+'+(statuses.length-3)+'</i>':'');
   }
 }
-function saveBattleReport(outcome){if(!battle?.simulation)return;const report=battleReport({...battle.simulation,events:outcome==='retreat'?battle.simulation.events.slice(0,battle.index):battle.simulation.events},outcome==='retreat'?battle.elapsed:Infinity);try{client.saveBattle({challengeId:battle.challenge.id,taskId:battle.challenge.taskId,outcome,report});}catch{toast('本机空间不足，战报暂未保存');}}
+function saveBattleReport(outcome){if(!battle?.report)return;const report=battle.report.finish(outcome==='retreat'?battle.elapsed:battle.simulation.duration,outcome==='retreat');try{client.saveBattle({challengeId:battle.challenge.id,taskId:battle.challenge.taskId,outcome,report});}catch{toast('本机空间不足，战报暂未保存');}}
 function stopBattle(){finishWave();battleEffects?.dispose();battleEffects=null;clearInterval(battleTimer);battleTimer=null;worker?.terminate();worker=null;battle=null;}
 function beginBattle(challenge){
   stopBattle();toastNode.classList.remove('visible');toastNode.textContent='';battle={challenge,speed:preferredBattleSpeed,elapsed:0,index:0,wave:1,holdUntil:0,last:performance.now(),units:{},simulation:null,currentFrame:null,log:[]};
   transition('battle',{taskId:challenge.taskId,kind:TASKS[challenge.taskId].kind},true);preloadEnemies(currentTask());
   worker=new Worker(new URL('./battle-worker.js',import.meta.url),{type:'module'});
-  worker.onmessage=({data})=>{if(data.error){toast(data.error);stopBattle();transition('tasks',{},true);return;}battle.simulation=data;battle.units=Object.fromEntries(data.initial.map(u=>[u.id,u]));battle.last=performance.now();drawBattle();battleTimer=setInterval(playback,50);};
+  worker.onmessage=({data})=>{
+    if(data.error){toast(data.error);stopBattle();transition('tasks',{},true);return;}
+    const first=!battle.simulation;battle.simulation=data;battle.index=0;battle.waiting=false;battle.last=performance.now();
+    if(first){battle.units=Object.fromEntries(data.initial.map(u=>[u.id,u]));battle.report=createBattleReport(data);drawBattle();battleTimer=setInterval(playback,50);}
+  };
   worker.onerror=()=>{toast('战斗暂时无法开始，请返回后重试');stopBattle();transition('tasks',{},true);};worker.postMessage(challenge);
 }
 function playback(){
-  if(!battle?.simulation)return;const now=performance.now();if(busy||sheet||document.hidden){pauseBattleView();return;}if(now<battle.holdUntil){battle.last=now;return;}
-  battle.elapsed+=(now-battle.last)/1000*battle.speed;battle.last=now;const sim=battle.simulation,visual=[];
-  const clock=document.querySelector('#battle-time');if(clock)clock.textContent=Math.min(battle.elapsed,sim.duration).toFixed(1)+' / 90秒';
-  while(battle.index<sim.events.length&&sim.events[battle.index].time<=battle.elapsed){const e=sim.events[battle.index++];let text;
+  if(!battle?.simulation||battle.waiting)return;const now=performance.now();if(busy||sheet||document.hidden){pauseBattleView();return;}if(now<battle.holdUntil){battle.last=now;return;}
+  const sim=battle.simulation,visual=[];battle.elapsed=Math.min(sim.duration,battle.elapsed+(now-battle.last)/1000*battle.speed);battle.last=now;
+  const clock=document.querySelector('#battle-time');if(clock)clock.textContent=battleTime(battle.elapsed);
+  while(battle.index<sim.events.length&&sim.events[battle.index].time<=battle.elapsed){const e=sim.events[battle.index++];battle.report.append(e);let text;
     if(e.type==='wave'){
       battleEffects?.group(visual.splice(0));showWave(e);text='第'+e.index+'波';battleEffects?.announce(text,600);battle.log.push({time:e.time,text});
-      if(e.index>1){battle.elapsed=e.time;battle.holdUntil=now+(reducedMotion()?0:400);if(clock)clock.textContent=e.time.toFixed(1)+' / 90秒';break;}
+      if(e.index>1){battle.elapsed=e.time;battle.holdUntil=now+(reducedMotion()?0:400);if(clock)clock.textContent=battleTime(e.time);break;}
       continue;
     }
     if(e.type==='summon'){appendUnit(e.unit);const card=document.getElementById('unit-'+e.unit.id);if(card)battleEffects?.animate(card.querySelector('.unit-art'),[{opacity:0,transform:'scale(.94)'},{opacity:1,transform:'scale(1)'}],battleEffects.duration(150));}
@@ -413,7 +419,11 @@ function playback(){
     if(text)battle.log.push({time:e.time,text});
   }
   battleEffects?.group(visual);
-  if(battle.elapsed>=sim.duration){const challengeId=battle.challenge.id,outcome=sim.outcome;saveBattleReport(outcome);stopBattle();transition('tasks',{},true);mutate({type:'settle',challengeId,outcome});}
+  battle.log=battle.log.slice(-100);
+  if(battle.elapsed>=sim.duration&&battle.index===sim.events.length){
+    if(!sim.done){battle.waiting=true;worker.postMessage({type:'continue'});return;}
+    const challengeId=battle.challenge.id,outcome=sim.outcome;saveBattleReport(outcome);stopBattle();transition('tasks',{},true);mutate({type:'settle',challengeId,outcome});
+  }
 }
 function bindInputs(){
   const bind=(id,event,fn)=>document.getElementById(id)?.addEventListener(event,fn);

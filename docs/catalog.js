@@ -1,12 +1,13 @@
 import { DATA as BASE_DATA } from './data.js';
 import { NEW_HEROES } from './new-heroes.js';
 import { WEAPON_PERMISSIONS, expandEquipment } from './equipment-expansion.js';
-export const RULE_VERSION = 'agency-equipment-stats-5';
+import {applyBattleRules} from './battle-rules.js';
+export {BATTLE_LIMITS,gearRewardBand} from './battle-rules.js';
+export const RULE_VERSION = 'agency-battle-affixes-6';
 const characters=[...BASE_DATA.characters,...NEW_HEROES].map(h=>({...h,weapons:WEAPON_PERMISSIONS[h.id]}));
-export const DATA = {...BASE_DATA,characters,equipment:expandEquipment(BASE_DATA.equipment),balanceRevision:'equipment-idle-v0.5',requiresBattleEngineVersion:RULE_VERSION,
+export const DATA = {...applyBattleRules(BASE_DATA),characters,equipment:{...expandEquipment(BASE_DATA.equipment),sameTypeAffixWithinItemAllowed:true,affixSampling:'weighted_with_replacement'},balanceRevision:'battle-affixes-v0.7',requiresBattleEngineVersion:RULE_VERSION,
   recruitment:{...BASE_DATA.recruitment,weights:characters.map(h=>({name:h.name,weight:1,chanceBp:10000/characters.length}))}};
 export const SCHEMA = 2;
-export const BATTLE_LIMIT = 90;
 export const MAX_INVENTORY = 600;
 export const SLOT_NAMES = ['主手','副手','头盔','肩部','衣服','裤子','腰带','护手','鞋子','戒指1','戒指2','项链','饰品1','饰品2','披风'];
 export const QUALITY = ['普通','优秀','稀有','史诗','传说'];

@@ -1,4 +1,4 @@
-import { HERO_BY_ID, TASKS, BATTLE_LIMIT, RULE_VERSION, DATA } from './catalog.js';
+import { HERO_BY_ID, TASKS, RULE_VERSION, DATA } from './catalog.js';
 import { clone, seededRandom, requireRule } from './primitives.js';
 import { redistributeLife } from './hero-mechanics.js';
 
@@ -10,18 +10,21 @@ export function chooseTarget(attacker,targets) {
 const lowest=units=>alive(units).sort((a,b)=>a.hp/a.maxHp-b.hp/b.maxHp||a.order-b.order)[0];
 const EPS=1e-8;
 
-// Pure deterministic simulation. The server controls rewards, never accepts
-// client-supplied stats/rewards, and deliberately does not attest combat wins.
-export function simulate(challenge,{trace=true}={}) {
+// Yield only between complete atomic events. The generator retains RNG, queue,
+// cooldowns and all unit references; a compute slice is never a gameplay timeout.
+export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
+  requireRule(chunkEvents===Infinity||Number.isInteger(chunkEvents)&&chunkEvents>0,'计算分批大小无效');
   requireRule(challenge.rule===RULE_VERSION&&challenge.balanceRevision===DATA.balanceRevision,'战斗规则已更新，请重新打开网页并重新挑战');
   const task=TASKS[challenge.taskId];requireRule(task,'战斗任务不存在');
+  const limit=task.limitSeconds===null?Infinity:task.limitSeconds;
+  requireRule(limit===Infinity||Number.isFinite(limit)&&limit>0,'副本时限无效');
   const rng=seededRandom(challenge.seed),buffs=challenge.buffs||[],bonus=challenge.bonuses||{},events=[],queue=[];
   const effect=type=>buffs.filter(b=>b.effect_type===type);
   const param=(type,key)=>effect(type).reduce((n,b)=>n+(b.parameters[key]||0),0);
   const has=type=>effect(type).length>0;
   let time=0,previousTime=0,sequence=0,shieldSequence=0,interferenceUntil=0,interferenceSpeed=1,ended=false;
   const counters={damage:0,healing:0,shieldCreated:0,shieldAbsorbed:0,shieldSpent:0,shieldExpired:0,selfPaid:0,debtCreated:0,debtPaid:0,debtPurified:0};
-  const schedule=(at,priority,fn)=>{if(at<=90+EPS)queue.push({at:Math.round(at*1e6)/1e6,priority,sequence:sequence++,fn});};
+  const schedule=(at,priority,fn)=>{at=Math.round(at*1e6)/1e6;if(at<=limit)queue.push({at,priority,sequence:sequence++,fn});};
   const emit=(type,fields={})=>{if(trace)events.push({time,wave:waveIndex+1,type,...fields});};
   const stateUnit=u=>Object.assign(u,{shields:[],dots:[],debt:[],echoes:[],hp:u.maxHp,actions:0,basics:0,casts:0,focusCount:0,focusTarget:null,dotStacks:0,flags:{},icd:{},enemyDeficit:0,selfDeficit:0,lastEnemyHpHit:-Infinity,actionBuff:0,actionBuffCount:0,immuneUntil:0,reductionUntil:0,reduction:0,castAt:0,cdReduction:0,deadCommitted:false});
   const heroes=challenge.heroes.map(h=>stateUnit({...h,side:'hero',name:HERO_BY_ID[h.id].name,maxHp:h.hp,row:Math.floor(h.slot/3),x:h.slot%3,y:Math.floor(h.slot/3),w:1,h:1,order:h.slot,cdRemaining:h.cd}));
@@ -335,7 +338,11 @@ export function simulate(challenge,{trace=true}={}) {
       const order=enemies.length,u=stateUnit({id:`${task.id}-W${waveIndex+1}-S${order}`,side:'enemy',name:task.summonTemplate?.name||(mechanic.id==='printer'?'纸片人':mechanic.id==='mirror'?'镜像':'候车影'),maxHp:mechanic.summonHp,atk:mechanic.summonAtk,def:task.summonTemplate?.def||0,interval:task.summonTemplate?.interval||3,cdRemaining:Infinity,kind:'normal',row:cell.y,x:cell.x,y:-1-cell.y,gridX:cell.x,gridY:cell.y,w:1,h:1,order});enemies.push(u);emit('summon',{unit:publicUnit(u)});scheduleWave(time+(task.summonTemplate?.firstActionDelaySeconds??1),3+order/100,()=>enemyAction(u));
     }
   }
-  function periodic(period,fn,start=period,end=90) {for(let at=start;at<=Math.min(end,BATTLE_LIMIT-waveStartedAt);at+=period)scheduleWave(waveStartedAt+at,1,()=>{if(boss?.hp>0)fn();});}
+  function periodic(period,fn,start=period,end=Infinity) {
+    const origin=waveStartedAt;
+    const next=at=>{if(at>end)return;scheduleWave(origin+at,1,()=>{if(boss?.hp>0){fn();next(at+period);}});};
+    next(start);
+  }
   function installMechanics() {
     if(!mechanic)return;
     for(const at of mechanic.summonTimes||[])scheduleWave(waveStartedAt+at,1,summon);
@@ -344,7 +351,10 @@ export function simulate(challenge,{trace=true}={}) {
       periodic(mechanic.shieldPeriod,()=>addShield(boss,boss.maxHp*mechanic.shieldHpFraction,'rain',mechanic.shieldDuration));
     }
     if(mechanic.id==='vending')periodic(mechanic.period,()=>{let drained=0;for(const h of alive(heroes))drained+=receive(boss,h,h.maxHp*mechanic.drainTargetMaxHpFraction,{tag:'drain',bypass:true}).hp;heal(boss,boss,Math.min(drained*mechanic.healFromActualDrain,boss.maxHp*mechanic.healPerTriggerBossHpCap));emit('mechanic',{text:'体温汲取'});},mechanic.period,mechanic.period*mechanic.maxTriggers);
-    if(mechanic.id==='theatre')for(let at=mechanic.period;at<=BATTLE_LIMIT-waveStartedAt;at+=mechanic.period){scheduleWave(waveStartedAt+at-mechanic.warningSeconds,1,()=>{if(boss.hp>0){boss.theatreStart=time;boss.theatreDamage=0;emit('mechanic',{text:`谢幕蓄势：${mechanic.warningSeconds}秒内削减${mechanic.checkBossHpFraction*100}%生命可降低群伤`});}});scheduleWave(waveStartedAt+at,1,()=>{if(boss.hp>0){const mult=mechanic.aoeAttackMultiplier*(boss.theatreDamage>=boss.maxHp*mechanic.checkBossHpFraction?mechanic.passedDamageFactor:1);for(const h of alive(heroes))damage(boss,h,boss.atk*mult,'environment');boss.theatreStart=Infinity;}});}
+    if(mechanic.id==='theatre'){
+      periodic(mechanic.period,()=>{boss.theatreStart=time;boss.theatreDamage=0;emit('mechanic',{text:`谢幕蓄势：${mechanic.warningSeconds}秒内削减${mechanic.checkBossHpFraction*100}%生命可降低群伤`});},mechanic.period-mechanic.warningSeconds);
+      periodic(mechanic.period,()=>{const mult=mechanic.aoeAttackMultiplier*(boss.theatreDamage>=boss.maxHp*mechanic.checkBossHpFraction?mechanic.passedDamageFactor:1);for(const h of alive(heroes))damage(boss,h,boss.atk*mult,'environment');boss.theatreStart=Infinity;});
+    }
     if(mechanic.id==='phone')periodic(mechanic.period,()=>{interferenceUntil=time+mechanic.duration;interferenceSpeed=mechanic.skillCooldownProgressSpeed;emit('mechanic',{text:`技能干扰：${mechanic.duration}秒内冷却流逝减慢`});schedule(time+mechanic.duration,1,()=>{});});
     if(mechanic.id==='terminal')periodic(mechanic.sweepPeriod,()=>{for(const h of alive(heroes))damage(boss,h,boss.atk*mechanic.sweepAttackMultiplier,'environment');});
     if(mechanic.id==='clock')periodic(mechanic.period,()=>emit('mechanic',{text:'报时：快速行动即将开始'}),Math.max(0,mechanic.fastStartsAt-2));
@@ -364,12 +374,13 @@ export function simulate(challenge,{trace=true}={}) {
   const initial=units().map(publicUnit);
   for(const h of heroes){
     for(const b of effect('opening_shield'))addShield(h,h.maxHp*b.parameters.max_hp_ratio,b.id,b.parameters.duration_s);
-    for(const b of effect('periodic_shield'))for(let at=0;at<=90;at+=b.parameters.interval_s)schedule(at,1,()=>addShield(h,h.maxHp*b.parameters.max_hp_ratio,b.id,b.parameters.duration_s));
+    for(const b of effect('periodic_shield')){const tick=()=>{if(h.hp<=0)return;addShield(h,h.maxHp*b.parameters.max_hp_ratio,b.id,b.parameters.duration_s);schedule(time+b.parameters.interval_s,1,tick);};schedule(0,1,tick);}
     h.nextActionAt=.7+.17*h.order;schedule(h.nextActionAt,2+h.order/100,()=>heroAction(h));
   }
   emit('frame',{units:snapshot()});
+  let processed=0;
   while(queue.length&&!ended) {
-    queue.sort((a,b)=>a.at-b.at||a.priority-b.priority||a.sequence-b.sequence);const event=queue.shift();time=event.at;if(time>90+EPS)break;
+    queue.sort((a,b)=>a.at-b.at||a.priority-b.priority||a.sequence-b.sequence);const event=queue.shift();time=event.at;
     const delta=time-previousTime,slowed=Math.min(delta,Math.max(0,interferenceUntil-previousTime));
     for(const u of units()){
       if(u.key&&u.key.until<=time+EPS){u.key=null;emit('buff_expired',{target:u.id,name:'非常棒的钥匙'});}
@@ -384,7 +395,16 @@ export function simulate(challenge,{trace=true}={}) {
       if(completedWaves===waves.length)ended=true;
       else {enterWave(waveIndex+1);emit('frame',{units:snapshot()});}
     }
+    if(++processed>=chunkEvents&&!ended&&queue.length){
+      yield {done:false,outcome:null,duration:time,waveCount:waves.length,completedWaves,initial,events:events.splice(0),final:snapshot(),counters:{...counters}};
+      processed=0;
+    }
   }
   const outcome=alive(heroes).length&&completedWaves===waves.length?'win':'loss';
-  return {outcome,duration:ended?time:BATTLE_LIMIT,waveCount:waves.length,completedWaves,initial,events,final:snapshot(),counters};
+  yield {done:true,outcome,duration:ended?time:limit,waveCount:waves.length,completedWaves,initial,events,final:snapshot(),counters};
+}
+export function simulate(challenge,options={}){
+  const events=[];let result;
+  for(const chunk of simulateChunks(challenge,options)){events.push(...chunk.events);result=chunk;}
+  return {...result,events};
 }
