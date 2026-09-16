@@ -23,18 +23,18 @@ const bossFamilies = ('demon humanoid beast caster beast humanoid mechanical cas
 const containment = ['printer','rain','clock','mirror','elevator','vending','theatre','cabinet','phone','terminal'];
 const planetScenes = {'新地星':'forest','祝融星':'lava','雷神星':'ruins','句芒星':'marsh','玄冥星':'ice'};
 const gearScenes = {lava:[1,14,16,19,20,22,35,37,38,45,46,49,50,59,60],mine:[2,7,10,43,62,63],forest:[3,6,12,15,21,29,47,61],ice:[9,25,34,58],castle:[4,8,17,18,26,33,55,56],mechanical:[28,32,39,57]};
-const byId = new Map();
+const byId = new Map(),bossArt = new Map();
 for(const task of Object.values(TASKS)) {
   for(const wave of task.waves) for(const enemy of wave.enemies) {
     let family = named.get(enemy.name) || 'humanoid';
-    if(enemy.type==='boss'&&task.kind==='gear') family=bossFamilies[task.index-1]||'humanoid';
+    if(enemy.type==='boss'&&task.kind==='gear'){family=bossFamilies[task.index-1]||'humanoid';bossArt.set(enemy.id,`./art/boss-${task.id}-v5.webp`);}
     if(enemy.type==='boss'&&task.kind==='rogue') family=containment[task.index-1];
     byId.set(enemy.id,family);
   }
 }
 export function enemyAppearance(task,unit) {
   const family=byId.get(unit.id)||(task.summonTemplate?named.get(task.summonTemplate.name):null)||(task.kind==='rogue'?'shadow':'humanoid');
-  return {family,src:`./art/enemy-${family}.${family==='biter'?'webp':'svg'}`};
+  return {family,src:bossArt.get(unit.id)||(family==='biter'?'./art/enemy-biter.webp':`./art/enemy-${family}-v5.webp`)};
 }
 export function battleScene(task) {
   if(task.kind==='rogue') return 'corridor';
@@ -44,5 +44,6 @@ export function battleScene(task) {
 export function preloadEnemies(task) {
   const sources=new Set(task.waves.flatMap(w=>w.enemies.map(e=>enemyAppearance(task,e).src)));
   if(task.summonTemplate)sources.add(enemyAppearance(task,task.summonTemplate).src);
+  sources.add(`./art/scene-${battleScene(task)}-v5.webp`);
   for(const src of sources){const img=new Image();img.src=src;}
 }

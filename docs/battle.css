@@ -64,3 +64,8 @@
 @media(min-width:700px) and (min-height:700px){.battlefield{padding:28px 48px 20px}.ally-grid{padding:0 30px;column-gap:10px}.enemy-grid{gap:8px}.battle-mode .topbar{padding-inline:22px}}
 @media(max-width:340px){.battlefield{padding:28px 10px 12px}.battle-mode .topbar{padding-inline:8px;gap:3px}.battle-mode .topbar .battle-title{font-size:.9rem}.battle-mode .topbar button{padding-inline:7px}.ally-grid{column-gap:6px;padding:0 3px}}
 @media(max-height:530px){.battlefield{flex:none;height:410px}.battle-mode .page-body{overflow-y:auto}.battle-mode .action-bar{min-height:52px}}
+/* Painted environment below independent haze and floor layers. */
+.scene-forest{--scene-art:url('./art/scene-forest-v5.webp')}.scene-lava{--scene-art:url('./art/scene-lava-v5.webp')}.scene-ruins{--scene-art:url('./art/scene-ruins-v5.webp')}.scene-marsh{--scene-art:url('./art/scene-marsh-v5.webp')}.scene-ice{--scene-art:url('./art/scene-ice-v5.webp')}.scene-mine{--scene-art:url('./art/scene-mine-v5.webp')}.scene-castle{--scene-art:url('./art/scene-castle-v5.webp')}.scene-mechanical{--scene-art:url('./art/scene-mechanical-v5.webp')}.scene-corridor{--scene-art:url('./art/scene-corridor-v5.webp')}
+.battlefield .scene-far{inset:-55px -8px;background-image:linear-gradient(#08141c55,#08141c80),var(--scene-art);background-position:center;background-size:cover;opacity:.9}
+.battlefield .scene-floor{background:linear-gradient(0deg,#09191c75,transparent 65%),repeating-linear-gradient(0deg,transparent 0 100px,#c1cdaf05 101px 102px);mask-image:linear-gradient(transparent 20%,#000 70%);opacity:.65}
+@media(prefers-reduced-motion:reduce){.battlefield .scene-far,.battlefield .scene-floor{transform:none}}

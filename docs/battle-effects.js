@@ -51,7 +51,7 @@ export class BattleEffects {
   }
   source(id,time,cast=false){
     const card=this.card(id);if(!card||card.classList.contains('dead')||!this.once(`source:${time}:${id}`))return;
-    const ranged=['法杖','弓','火枪'].includes(this.weapon(id)),direction=this.unit(id)?.side==='hero'?-1:1;
+    const ranged=['法杖','魔杖','弓','火枪'].includes(this.weapon(id)),direction=this.unit(id)?.side==='hero'?-1:1;
     this.animate(card.querySelector('.unit-art'),[{transform:'translateY(0)'},{transform:`translateY(${direction*(cast?4:ranged?-2:7)}px)`,offset:.4},{transform:'translateY(0)'}],this.duration(cast?380:ranged?280:250));
     if(cast)this.pulse(id,'ring',profiles[id]?.[0],380);
   }
@@ -108,7 +108,7 @@ export class BattleEffects {
       if(!(e.amount>0||e.absorbed>0))return;
       const direct=['basic','active','shield_to_damage'].includes(e.tag);
       if(direct)this.source(e.source,e.time,e.tag!=='basic');
-      const ranged=['法杖','弓','火枪'].includes(this.weapon(e.source));
+      const ranged=['法杖','魔杖','弓','火枪'].includes(this.weapon(e.source));
       if(e.tag==='basic'&&ranged)this.projectile(e.source,e.target,color);
       else if(e.tag==='passive'&&e.source==='jin')this.projectile(e.source,e.target,color,'bullet');
       else if(['active','shield_to_damage'].includes(e.tag)&&['wudi','echoz','sacred_druid','shuo'].includes(e.source))this.projectile(e.source,e.target,color,e.source==='wudi'?'shard':e.source==='shuo'?'bullet':'bolt');
@@ -125,8 +125,8 @@ export class BattleEffects {
     }
     if(e.type==='payment'){this.number(e,'payment',e.amount);if(e.amount>0)this.projectile(e.target,e.source,'#b4777b','payment');return;}
     if(e.type==='purify'){this.number(e,'purify',e.amount);this.pulse(e.target,'purify','#ddb674');return;}
-    if(e.type==='transfer'){this.pulse(e.target,'curse',profiles.bandebeidiwang[0]);return;}
-    if(e.type==='redirect'){this.pulse(e.source,'guard',profiles.kukalon[0]);return;}
+    if(e.type==='transfer'){this.projectile(e.oldTarget,e.target,profiles.bandebeidiwang[0],'bolt');this.pulse(e.target,'curse',profiles.bandebeidiwang[0]);return;}
+    if(e.type==='redirect'){this.projectile(e.source,e.target,profiles.kukalon[0],'shard');this.pulse(e.source,'guard',profiles.kukalon[0]);return;}
     if(e.type==='clutch'){this.pulse(e.target,'ring',profiles.lancelot[0],400);return;}
     if(e.type==='environment_attack'&&this.once(`area:${e.time}:${e.source}`))this.area(e.targets,'#a5c7d6','weather');
   }

@@ -45,6 +45,8 @@ export function rollEquipment(task,s,rng=random) {
   const extra=talentBonus(s,'target_equipment_group_add_pp_fraction');
   if(focus!==undefined&&extra>0) { const old=weights[focus],added=Math.min(extra,1-old); for(let i=0;i<3;i++)weights[i]=i===focus?old+added:weights[i]*(1-old-added)/(1-old); }
   const group=['weapon','armor','jewelry'][weighted(weights,rng)];
-  const pool=TEMPLATES.filter(t=>t.tier===tier&&t.group===group);
+  const pool=TEMPLATES.filter(t=>t.tier===tier&&t.group===group&&templateAvailable(t));
   return makeItem(pool[Math.floor(rng()*pool.length)].id,quality,rng);
 }
+export function templateAvailable(t){return t.group!=='weapon'||Object.values(HERO_BY_ID).some(h=>h.weapons.main.includes(t.slot));}
+export function equipmentType(item){const t=TEMPLATE_BY_ID[item.templateId];return t.group==='weapon'?`${t.slot} · ${t.twoHand?'双手':'主手'}`:t.slot;}

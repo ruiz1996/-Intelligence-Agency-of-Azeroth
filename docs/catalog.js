@@ -1,8 +1,9 @@
 import { DATA as BASE_DATA } from './data.js';
 import { NEW_HEROES } from './new-heroes.js';
-export const RULE_VERSION = 'agency-four-heroes-4';
-const characters=[...BASE_DATA.characters,...NEW_HEROES];
-export const DATA = {...BASE_DATA,characters,balanceRevision:'four-heroes-v0.4',requiresBattleEngineVersion:RULE_VERSION,
+import { WEAPON_PERMISSIONS, expandEquipment } from './equipment-expansion.js';
+export const RULE_VERSION = 'agency-equipment-stats-5';
+const characters=[...BASE_DATA.characters,...NEW_HEROES].map(h=>({...h,weapons:WEAPON_PERMISSIONS[h.id]}));
+export const DATA = {...BASE_DATA,characters,equipment:expandEquipment(BASE_DATA.equipment),balanceRevision:'equipment-idle-v0.5',requiresBattleEngineVersion:RULE_VERSION,
   recruitment:{...BASE_DATA.recruitment,weights:characters.map(h=>({name:h.name,weight:1,chanceBp:10000/characters.length}))}};
 export const SCHEMA = 2;
 export const BATTLE_LIMIT = 90;

@@ -1,7 +1,15 @@
 import { DATA, RULE_VERSION, SCHEMA, HEROES, HERO_BY_ID, TASKS, CATALOG, TEMPLATE_BY_ID, MAX_INVENTORY, BUFF_BY_ID, TALENTS, TALENT_BY_ID, templateSlots, talentBonus, chosenBuffs } from './catalog.js';
 import { GameError, requireRule, clone, uid, random, weighted, natural, SCALE, decimalUnits, walletUnits, credit, spend, ceilDiv } from './primitives.js';
-import { makeItem, canEquip, upgradeCost, rollEquipment, salvageValue } from './equipment.js';
+import { makeItem, canEquip, upgradeCost, rollEquipment, salvageValue, templateAvailable } from './equipment.js';
 import { heroStats } from './stats.js';
+import { recommendEquipment } from './equipment-recommendation.js';
+import { upgradeState } from './state-upgrades.js';
+import { WEAPON_REVISION } from './equipment-expansion.js';
+export { WEAPON_REVISION } from './equipment-expansion.js';
+import { initIdleGear, settleIdleGear, updateIdleGearSource, claimIdleGear } from './idle-equipment.js';
+export * from './equipment-recommendation.js';
+export * from './idle-equipment.js';
+export {needsStateUpgrade} from './state-upgrades.js';
 export * from './catalog.js';
 export * from './primitives.js';
 export * from './equipment.js';
@@ -18,7 +26,7 @@ export function createState(now=Date.now()) {
     const hero=HEROES.find(h=>h.name===spec.character),template=DATA.equipment.templates115.find(t=>t.tier===1&&t.slot===spec.template);
     const item=makeItem(template.id,0);s.items.push(item);s.equipment[hero.id][templateSlots(template)[0]]=item.id;
   }
-  return s;
+  s.migrations[WEAPON_REVISION]={at:now,report:[]};initIdleGear(s,now);return s;
 }
 export function idleRates(s) {
   const r=CATALOG.idle[s.progress.idle-1]?.rewards;
@@ -64,15 +72,11 @@ function grantHero(s,id) { const h=s.heroes[id];if(h.owned){h.shards+=10;return 
 function space(s,count=1) { requireRule(s.items.length+s.pendingEquipment.length+count<=MAX_INVENTORY,'背包空间不足，请先分解未穿戴且未锁定的装备'); }
 function owned(s,id) { requireRule(HERO_BY_ID[id]&&s.heroes[id].owned,'未拥有该特工');return s.heroes[id]; }
 function itemById(s,id) { const item=s.items.find(i=>i.id===id);requireRule(item,'装备不存在');return item; }
-export function completeRoster(old) {
-  const s=clone(old);if(s.schema!==SCHEMA)return s;
-  for(const h of HEROES){s.heroes[h.id]??={owned:false,star:1,shards:0};s.equipment[h.id]??=Array(15).fill(null);}
-  return s;
-}
+export function completeRoster(old,now=Date.now()) {return upgradeState(old,now);}
 export function migrateState(old,now=Date.now()) {
-  if(old.schema===SCHEMA)return completeRoster(old);requireRule(old.schema===1,'档案版本不受支持，原档已保留');
+  if(old.schema===SCHEMA)return completeRoster(old,now);requireRule(old.schema===1,'档案版本不受支持，原档已保留');
   const s=createState(now),report=[];s.items=[];for(const id in s.equipment)s.equipment[id].fill(null);
-  s.migrations={baseline2:{at:now,snapshot:clone(old),report},rebirth_points_v1:true};s.cycle=old.cycle||1;s.rebirths=Number.isSafeInteger(old.rebirths)&&old.rebirths>=0?old.rebirths:0;
+  s.migrations={baseline2:{at:now,snapshot:clone(old),report},rebirth_points_v1:true,[WEAPON_REVISION]:{at:now,report:[]}};s.cycle=old.cycle||1;s.rebirths=Number.isSafeInteger(old.rebirths)&&old.rebirths>=0?old.rebirths:0;
   if(!Number.isSafeInteger(old.rebirths)||old.rebirths<0)report.push('旧重生次数缺失或无效，保留原快照待核对，未推算补点。');
   s.points=(48n*BigInt(s.rebirths)).toString();s.wallet.gold=decimalUnits(old.gold||0).toString();s.wallet.recruit=decimalUnits(old.recruit||0).toString();
   const minutes=Math.max(0,Math.min(480,(now-(old.lastIdleAt??now))/60000));
@@ -97,9 +101,11 @@ export function migrateState(old,now=Date.now()) {
 }
 export function act(input,action,now=Date.now(),rng=random) {
   requireRule(action&&typeof action==='object','操作无效');if(action.type==='migrate')return {state:migrateState(input,now),result:{migrated:input.schema!==SCHEMA}};
-  requireRule(input.schema===SCHEMA,'请先升级档案，旧档将完整保留');const s=completeRoster(input);s.rule=RULE_VERSION;let result={};
+  requireRule(input.schema===SCHEMA,'请先升级档案，旧档将完整保留');const s=completeRoster(input,now);s.rule=RULE_VERSION;let result={};settleIdleGear(s,now,rng);
   switch(action.type) {
-    case 'claim': result=claimIdle(s,now);break;
+    case 'claim': result={...claimIdle(s,now),...claimIdleGear(s)};break;
+    case 'claimGear': result=claimIdleGear(s);break;
+    case 'equipBest': {const recommendation=recommendEquipment(s,action.hero);s.equipment[action.hero]=recommendation.slots;result={equipped:recommendation.changed};break;}
     case 'formation': {const a=action.formation;requireRule(Array.isArray(a)&&a.length===6,'阵容应为六格');const ids=a.filter(Boolean);requireRule(ids.length>=1&&ids.length<=5&&new Set(ids).size===ids.length,'阵容需要一至五名不同特工');ids.forEach(id=>owned(s,id));s.formation=a.map(id=>id||null);break;}
     case 'recruit': {const count=action.count??1;requireRule([1,10].includes(count),'招募次数无效');spend(s,'recruit',100*count);result.recruits=Array.from({length:count},()=>grantHero(s,HEROES[weighted(HEROES.map(()=>1),rng)].id));break;}
     case 'star': {const h=owned(s,action.hero),cost=[20,40,80,120][h.star-1];requireRule(cost&&h.shards>=cost,'碎片不足或已满星');h.shards-=cost;h.star++;break;}
@@ -120,7 +126,8 @@ export function act(input,action,now=Date.now(),rng=random) {
     }
     case 'salvage': {
       const ids=action.items??[action.item];requireRule(Array.isArray(ids)&&ids.length>0&&ids.length<=600&&new Set(ids).size===ids.length,'分解列表无效');let coins=0n;
-      for(const id of ids){const item=itemById(s,id);requireRule(!item.locked&&!Object.values(s.equipment).some(slots=>slots.includes(id)),'锁定或已穿戴的装备不能分解');coins+=salvageValue(item,s);}
+      for(const id of ids){const item=itemById(s,id);requireRule(!item.locked&&!Object.values(s.equipment).some(slots=>slots.includes(id)),'锁定或已穿戴的装备不能分解');if(action.quality!==undefined)requireRule(item.quality===action.quality,'分解预览已变化，请重新选择');coins+=salvageValue(item,s);}
+      if(action.expectedCoins!==undefined)requireRule(coins.toString()===action.expectedCoins,'分解预览已变化，请重新选择');
       s.items=s.items.filter(i=>!ids.includes(i.id));credit(s,'gold',coins);result={coins:coins.toString(),count:ids.length};break;
     }
     case 'start': {
@@ -154,7 +161,7 @@ export function act(input,action,now=Date.now(),rng=random) {
       requireRule(s.pendingBuff?.options.includes(action.buff),'强化选项已过期');if(BUFF_BY_ID[action.buff].effect_type==='enhance_owned'){requireRule(s.buffs.includes(action.target)&&DATA.rogueEnhanceWhitelist.some(w=>w.choice_id===action.target),'请选择已有的可精修强化');s.enhancedBuff=action.target;}s.buffs.push(action.buff);s.pendingBuff=null;break;
     }
     case 'selectEquipment': {
-      const index=s.pendingEquipment.findIndex(p=>p.taskId===action.taskId),p=s.pendingEquipment[index],t=TEMPLATE_BY_ID[action.templateId];requireRule(p&&t&&t.tier===p.tier&&t.group===({武器:'weapon',防具:'armor',首饰:'jewelry'}[p.group]),'不属于该自选装备池');
+      const index=s.pendingEquipment.findIndex(p=>p.taskId===action.taskId),p=s.pendingEquipment[index],t=TEMPLATE_BY_ID[action.templateId];requireRule(p&&t&&templateAvailable(t)&&t.tier===p.tier&&t.group===({武器:'weapon',防具:'armor',首饰:'jewelry'}[p.group]),'不属于该自选装备池');
       requireRule(s.items.length<MAX_INVENTORY,'背包已满');const item=makeItem(t.id,1,rng);s.items.push(item);s.pendingEquipment.splice(index,1);result={item};break;
     }
     case 'rebirth': {
@@ -164,5 +171,5 @@ export function act(input,action,now=Date.now(),rng=random) {
     }
     default:throw new GameError('未知操作');
   }
-  return {state:s,result};
+  updateIdleGearSource(s,now);return {state:s,result};
 }

@@ -1,4 +1,4 @@
-import {createState,completeRoster,act,uid,RULE_VERSION,DATA} from './core.js';
+import {createState,completeRoster,needsStateUpgrade,act,uid,RULE_VERSION,DATA} from './core.js';
 const config=window.GAME_CONFIG||{};
 export const cloudReady=Boolean(config.supabaseUrl&&config.supabaseKey);
 const base=(config.supabaseUrl||'').replace(/\/$/,'');
@@ -53,13 +53,18 @@ export class GameClient{
   get presentation(){return read(this.key+':presentation');}
   savePresentation(receipt){localStorage.setItem(this.key+':presentation',JSON.stringify(receipt));}
   acknowledgePresentation(){localStorage.removeItem(this.key+':presentation');}
+  get recentBattle(){return read(this.key+':battle');}
+  saveBattle(value){localStorage.setItem(this.key+':battle',JSON.stringify(value));}
+  get weaponNoticeAt(){return read(this.key+':weapon-notice');}
+  acknowledgeWeaponNotice(at){localStorage.setItem(this.key+':weapon-notice',JSON.stringify(at));}
   now(){return Date.now()+this.offset;}
   async cloud(body){const token=await accessToken();return request(base+'/functions/v1/game',{method:'POST',headers:authHeaders(token),body:JSON.stringify(body)});}
   accept(envelope){this.version=envelope.version;this.offset=(envelope.serverTime||Date.now())-Date.now();return {...envelope,state:completeRoster(envelope.state)};}
   async load(){
     if(this.pending)return this.retry();
     if(this.mode==='cloud')return this.accept(await this.cloud({type:'load'}));
-    let value=read(STORE);if(!value){value={state:createState(),version:0,receipts:{}};localStorage.setItem(STORE,JSON.stringify(value));}
+    const initialize=()=>{let value=read(STORE);if(!value)value={state:createState(),version:0,receipts:{}};else if(needsStateUpgrade(value.state)){value.state=completeRoster(value.state);value.version++;}localStorage.setItem(STORE,JSON.stringify(value));return value;};
+    const value=navigator.locks?await navigator.locks.request(STORE,initialize):initialize();
     return this.accept({...value,serverTime:Date.now()});
   }
   async action(action){
@@ -88,7 +93,7 @@ export class GameClient{
       // resume a reveal without issuing a new paid action or granting rewards.
       if(data.result?.recruits||data.result?.outcome){
         const prior=this.presentation;
-        if(prior?.opId!==body.opId)this.savePresentation({opId:body.opId,result:data.result,index:0});
+        if(prior?.opId!==body.opId){const battle=this.recentBattle;this.savePresentation({opId:body.opId,result:{...data.result,...(battle&&body.action.challengeId&&battle.challengeId===body.action.challengeId?{report:battle.report}:{})},index:0});}
       }
       localStorage.removeItem(this.key);return this.accept(data);
     }catch(error){
