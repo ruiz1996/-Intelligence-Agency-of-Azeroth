@@ -5,7 +5,8 @@ import {
   rebirthPreview,act,equipmentType,templateAvailable,idleGearPreview,WEAPON_REVISION,taskUnlocked,latestUnlockedTask,breakthroughPreview,
 } from './core.js';
 import {createBattleReport} from './battle-report.js';
-import {archiveClues,idleGearCard,idleGearTime,reportContent,revealStyle,revealSound,soundEnabled,toggleSound,unlockSound} from './feature-v5.js';
+import {archiveClues,reportContent,revealStyle,revealSound,soundEnabled,toggleSound,unlockSound} from './feature-v5.js';
+import {headquartersView,supplyDetails,refreshHeadquarters} from './home-ui.js';
 import {GameClient,cloudReady,selectedMode,setLocal,signOut,login} from './api.js';
 import {esc,num,percent,art,series,itemName,itemStatsText,slotIcons,skillText,passiveText,mechanicText,roleText,skillCopy} from './presentation.js';
 import {buffDisplay} from './buff-display.js';
@@ -135,7 +136,7 @@ function success(action,result){
   if(action.type==='equip'||action.type==='unequip'){sheet=null;stamp();render();toast(action.type==='equip'?'装备已替换':'装备已卸下');return;}
   render();
   if(result.levels)toast(`强化${result.levels}级，消耗${formatInteger(result.paid)}金币`);
-  else if(action.type==='claim')toast('后勤补给已领取');
+  else if(['claim','claimResources'].includes(action.type))toast('后勤补给已领取');
   else if(action.type==='star')toast('升星成功');
   else if(result.migrated)toast('档案已升级，原档已保留');
 }
@@ -169,8 +170,9 @@ function render(){
   if(state.schema!==SCHEMA){root.innerHTML=`<main class="welcome"><section class="panel"><h1>旧档案升级</h1><p>保留特工、装备收藏与完整原档。任务重新开始，原重生奖励转换为回溯点。</p><div class="actions">${button('导出原档','export')}${button('保留快照并升级','migrate','',false,'primary')}</div>${client.pending?button('重试同步','retry'):''}</section></main>`;return;}
   if(ui.view==='battle'&&!battle)ui.view='tasks';
   const content=pages[ui.view](),message=battle?'':notice();
-  root.innerHTML=`<div class="shell ${['rebirth','breakthrough'].includes(ui.view)?'growth-mode':''} ${battle?'battle-mode':''}"><aside class="sidebar"><div class="brand"><span class="brand-mark">AX</span><strong>艾星情报局</strong></div><nav>${nav.map(([id,name,icon])=>button(`<span>${icon}</span>${name}`,'nav',`data-view="${id}"`,false,id===ui.view?'active':'')).join('')}</nav><span class="cycle">第${state.cycle}轮行动</span></aside><main class="main"><header class="topbar">${battle?battleHeader():`${button(ui.view==='home'?'AX':'‹','back','aria-label="返回"',false,'icon-button')}<h1>${esc(titles[ui.view])}</h1>${button('⋯','more','aria-label="更多"',false,'icon-button')}`}</header>${battle?'':`<div class="resources"><span>金币 <strong id="gold">${money(state.wallet.gold)}</strong></span><span>招募点 <strong id="recruit-points">${money(state.wallet.recruit)}</strong></span><span>可用回溯点 <strong>${formatInteger(state.points)}</strong></span></div>`}${message?`<div class="notice" role="status">${message}</div>`:''}<section class="page-body" tabindex="-1">${content.body}</section><div class="action-bar">${content.actions}</div><nav class="mobile-nav" aria-label="主要导航">${nav.map(([id,name,icon])=>button(`<span aria-hidden="true">${icon}</span>${name}`,'nav',`data-view="${id}"`,false,id===ui.view||id==='heroes'&&ui.view==='formation'?'active':'')).join('')}</nav></main></div>`;
+  root.innerHTML=`<div class="shell ${ui.view==='home'?'home-mode':''} ${['rebirth','breakthrough'].includes(ui.view)?'growth-mode':''} ${battle?'battle-mode':''}"><aside class="sidebar"><div class="brand"><span class="brand-mark">AX</span><strong>艾星情报局</strong></div><nav>${nav.map(([id,name,icon])=>button(`<span>${icon}</span>${name}`,'nav',`data-view="${id}"`,false,id===ui.view?'active':'')).join('')}</nav><span class="cycle">第${state.cycle}轮行动</span></aside><main class="main"><header class="topbar">${battle?battleHeader():`${button(ui.view==='home'?'AX':'‹','back','aria-label="返回"',false,'icon-button')}<h1>${esc(titles[ui.view])}</h1>${button('⋯','more','aria-label="更多"',false,'icon-button')}`}</header>${battle?'':`<div class="resources"><span>金币 <strong id="gold">${money(state.wallet.gold)}</strong></span><span>招募点 <strong id="recruit-points">${money(state.wallet.recruit)}</strong></span><span>可用回溯点 <strong>${formatInteger(state.points)}</strong></span></div>`}${message?`<div class="notice" role="status">${message}</div>`:''}<section class="page-body" tabindex="-1">${content.body}</section>${content.actions?`<div class="action-bar">${content.actions}</div>`:''}<nav class="mobile-nav" aria-label="主要导航">${nav.map(([id,name,icon])=>button(`<span aria-hidden="true">${icon}</span>${name}`,'nav',`data-view="${id}"`,false,id===ui.view||id==='heroes'&&ui.view==='formation'?'active':'')).join('')}</nav></main></div>`;
   const body=document.querySelector('.page-body');body.scrollTop=scrollPositions.get(screenKey())||0;
+  if(ui.view==='home')refreshHeadquarters(root,state,client.now(),busy||!!client.pending);
   bindInputs();if(battle)drawBattle();renderSheet();
   if(focused){const target=document.getElementById(focused.id);if(target){target.focus({preventScroll:true});try{target.setSelectionRange(focused.start,focused.end);}catch{}}}
 }
@@ -180,10 +182,7 @@ function selectProgress(kind=ui.kind,renderNow=true){const task=latestUnlockedTa
 function rewardTags(task){const r=task.rewards;return `<div class="reward-tags">${r.winGold?`<span>金币 +${num(r.winGold)}</span>`:''}${r.winRecruitPoints?`<span>招募点 +${num(r.winRecruitPoints)}</span>`:''}${task.kind==='gear'?'<span>装备 ×1；≤90秒 ×2</span><span>≤150秒 通关金币 ×2</span>':''}${task.kind==='rogue'?`<span>${state.runClears.includes(task.id)?'本轮奖励已领取':'胜利选择强化'}</span>`:''}${!state.firsts.includes(task.id)&&task.kind!=='idle'?'<span>首通招募点 +100</span>':''}</div>`;}
 function missionSummary(task){return `<section class="panel mission-summary"><div class="section-head"><span class="muted">${esc(task.kind==='idle'?task.planet:{gear:'装备任务',rogue:'异常收容'}[task.kind])}</span><span class="tag">${taskStatus(task)}</span></div><h2>${esc(task.name)}</h2><p>${task.kind==='idle'?`${esc(task.resource)} · ${task.step}/5　`:''}三波 · ${taskTime(task)} · ${task.environmentKind?'环境单位':'敌人'}${task.waves.reduce((n,w)=>n+w.enemies.length,0)}名</p>${rewardTags(task)}${!unlocked(task)?`<p class="lock-reason">先完成「${esc(TASKS[task.unlock].name)}」</p>`:''}<div class="actions split">${button('详情','taskDetails')}${button('当前进度','nextTask','',false,'quiet')}</div></section>`;}
 function missionAction(task){return state.pendingBuff?button('先选择强化','nav','data-view="rogue"',false,'primary'):button(unlocked(task)?'出战':'尚未解锁','start',`data-task="${task.id}"`,!unlocked(task),'primary');}
-function homePage(){const reward=idlePreview(state,client.now()),rate=idleRates(state),task=currentTask();return {
-  body:`<div class="home-layout"><section class="panel income-panel"><div><small>待领取金币</small><strong id="idle-gold">${money(reward.gold)}</strong><span id="idle-recruit">招募点 ${money(reward.recruit)}</span></div>${button('领取','claim','',false,'primary')}<small class="income-rate">每分钟 ${num(rate.gold)}金币 · ${num(rate.recruit)}招募点</small></section>${idleGearCard(state,client.now(),button)}<section class="panel squad-panel"><div class="section-head"><h2>出战小队</h2>${button('布阵','nav','data-view="formation"',false,'quiet')}</div><div class="squad-grid">${state.formation.filter(Boolean).map(id=>button(`<img src="${art(id,true)}" alt="${HERO_BY_ID[id].name}"><span>${HERO_BY_ID[id].name}</span>`,'hero',`data-hero="${id}"`)).join('')}</div></section><section class="panel continue-card"><small>继续行动</small><h2>${esc(task.name)}</h2>${rewardTags(task)}</section><div class="home-shortcuts">${button('◇ 异常收容','category','data-kind="rogue"')}${button('↶ 时间回溯','nav','data-view="rebirth"')}</div></div>`,
-  actions:button('选择任务','nav','data-view="tasks"')+missionAction(task),
-};}
+function homePage(){return headquartersView(state,client.now(),button);}
 function tasksPage(){const task=currentTask(),planet=task.kind==='idle'?task.planet:CATALOG.idle[0].planet;return {
   body:`<div class="task-layout"><div class="tabs">${[['idle','资源'],['gear','装备'],['rogue','收容']].map(([id,name])=>button(name,'category',`data-kind="${id}"`,false,ui.kind===id?'selected':'')).join('')}</div>${ui.kind==='idle'?`<div class="task-selectors"><label class="sr-only" for="planet">星球</label><select id="planet">${[...new Set(CATALOG.idle.map(t=>t.planet))].map(name=>`<option${name===planet?' selected':''}>${esc(name)}</option>`).join('')}</select><label class="sr-only" for="resource">资源</label><select id="resource">${CATALOG.idle.filter(t=>t.planet===planet&&t.step===1).map(t=>`<option value="${t.unit}"${t.unit===task.unit?' selected':''}>${esc(t.resource)}</option>`).join('')}</select></div><div class="stage-strip">${CATALOG.idle.filter(t=>t.unit===task.unit).map(t=>button(`${state.runClears.includes(t.id)?'✓ ':!unlocked(t)?'锁 ':''}${t.step}`,'task',`data-task="${t.id}" aria-label="第${t.step}关，${taskStatus(t)}"`,false,t.id===task.id?'selected':'')).join('')}</div>`:`<div class="directory-control">${button('‹','adjacentTask','data-delta="-1" aria-label="上一个任务"',task.index===1)}${button(esc(task.name)+' ▾','taskCatalog','',false,'directory-open')}${button('›','adjacentTask','data-delta="1" aria-label="下一个任务"',task.index===CATALOG[ui.kind].length)}</div>`}${missionSummary(task)}</div>`,
   actions:button('调整小队','nav','data-view="formation"')+missionAction(task),
@@ -279,6 +278,7 @@ function modalContent(){
     case 'enhance': title='选择精修目标';body=`<div class="menu-list">${DATA.rogueEnhanceWhitelist.filter(w=>state.buffs.includes(w.choice_id)).map(w=>button(`<strong>${BUFF_BY_ID[w.choice_id].name}</strong><small>${esc(buffDisplay(w.choice_id).summary)} → ${esc(buffDisplay(w.choice_id,true).summary)}</small>`,'enhanceTarget',`data-target="${w.choice_id}"`,false,d.target===w.choice_id?'selected':'')).join('')}</div>`;actions=button('返回','close')+button('确认精修','confirmEnhance','',!d.target,'primary');break;
     case 'rebirthConfirm': {const {plan,error}=planPreview(state,client.now());title='确认回溯';body=error?'<p>'+esc(error)+'</p>':`<p>本次获得 ${formatInteger(d.expectedPoints)} 点；回溯后可用 ${formatInteger(plan.remaining)} 点。</p><p>${state.rebirthPlan?'应用已保存的下轮方案。':'沿用当前等级与投入，新增点数留作余额。'}</p>${resetDetails()}`;actions=button('取消','close')+button('开始下一轮','confirmRebirth','',!!error,'primary');break;}
     case 'planEditor': return allocationEditor(state,client.now(),d.allocation,d.group,button);
+    case 'hqSupply': title='后勤补给';body=supplyDetails(state,client.now());break;
     case 'growthIncome': title='回溯收益明细';body=incomeDetails(state,client.now());break;
     case 'growthReset': title='保留与重置';body=resetDetails();break;
     case 'breakthroughPicker': title='选择突破特工';body=`<div class="picker-list">${ownedHeroes().map(h=>button(`<img src="${art(h.id,true)}" alt=""><span>${h.name}<small>${stars(h.id)}</small></span>›`,'pickBreakthrough',`data-hero="${h.id}"`)).join('')}</div>`;break;
@@ -300,6 +300,7 @@ function renderSheet(){
   modal.setAttribute('aria-labelledby','sheet-title');modal.innerHTML=`<header class="sheet-head"><h2 id="sheet-title">${esc(title)}</h2>${button('×','close','aria-label="关闭"',false,'icon-button')}</header><div class="sheet-body">${body}<p class="sheet-error" role="alert" hidden></p></div><footer class="sheet-footer">${client.pending?`<div class="retry-row"><span>保存未确认</span>${button('重试同步','retry')}</div>`:''}<div class="actions">${actions}</div></footer>`;
   if(sheet.type==='reveal'&&HERO_BY_ID[sheet.data.hero])revealSound(HERO_BY_ID[sheet.data.hero],sheet.data.receiptId+':'+sheet.data.index);
   modal.classList.toggle('growth-dialog',['planEditor','rebirthConfirm','breakthroughConfirm','breakthroughPicker','growthIncome','growthReset'].includes(sheet.type));
+  modal.classList.toggle('hq-dialog',sheet.type==='hqSupply');
   modal.classList.toggle('growth-editor-dialog',sheet.type==='planEditor');
   modal.classList.toggle('reveal-dialog',sheet.type==='reveal');if(!modal.open)modal.showModal();modal.querySelector('.sheet-body').scrollTop=position;
 }
@@ -511,6 +512,8 @@ async function handle(action,el){
   if(action==='breakthroughPhase'){updateUI({breakthroughPhase:d.phase,breakthroughCount:1});return;}
   if(action==='breakthroughCount'){updateUI({breakthroughCount:d.count==='max'?'max':1});return;}
   if(action==='confirmBreakthrough'){const p=breakthroughPreview(state,ui.selectedHero,ui.breakthroughPhase,ui.breakthroughCount);if(!p.canBuy){toast(p.reason);return;}openSheet('breakthroughConfirm',{hero:ui.selectedHero,phase:p.phase,count:p.count,expectedLevel:p.level,expectedCost:p.cost,nextLevel:p.nextLevel,changes:breakthroughChanges(state,ui.selectedHero,p.phase,p.count)});return;}
+  if(action==='hqSupply'){openSheet('hqSupply');return;}
+  if(action==='hqBag'){navigate('gear',{gearTab:'bag',quality:'all',gearFilterSlot:null,query:'',page:0});return;}
   if(action==='editPlan'){openSheet('planEditor',{allocation:structuredClone(state.rebirthPlan?.allocation||Object.fromEntries(Object.entries(state.talents).map(([id,t])=>[id,t.level]))),group:'战斗'});return;}
   if(action==='planGroup'){sheet.data.group=d.group;stamp();renderSheet();return;}
   if(action==='restorePlan'){await mutate({type:'saveRebirthPlan',allocation:null});return;}
@@ -547,7 +550,7 @@ async function handle(action,el){
   await mutate(payload);
 }
 document.addEventListener('click',event=>{const el=event.target.closest('[data-action]');if(el&&!el.disabled)handle(el.dataset.action,el).catch(error=>toast(error.message));});
-setInterval(()=>{if(!state||state.schema!==SCHEMA||ui.view!=='home')return;const r=idlePreview(state,client.now());const gold=document.querySelector('#idle-gold'),recruit=document.querySelector('#idle-recruit');if(gold)gold.textContent=money(r.gold);if(recruit)recruit.textContent='招募点 '+money(r.recruit);const g=idleGearPreview(state,client.now()),count=document.querySelector('#idle-gear-count'),time=document.querySelector('#idle-gear-time');if(count)count.textContent=g.count+'/48';if(time)time.textContent=idleGearTime(g);const claim=root.querySelector('[data-action=claimGear]');if(claim)claim.disabled=busy||!g.count;},1000);
+setInterval(()=>{if(state?.schema===SCHEMA&&ui.view==='home')refreshHeadquarters(root,state,client.now(),busy||!!client.pending);},1000);
 // Match the visible viewport when a phone keyboard reduces the available space.
 function fitViewport(){if(!visualViewport||visualViewport.scale!==1){document.documentElement.style.removeProperty('--visible-height');return;}document.documentElement.style.setProperty('--visible-height',visualViewport.height+'px');}
 window.visualViewport?.addEventListener('resize',fitViewport);fitViewport();

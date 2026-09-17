@@ -6,6 +6,8 @@
 .growth-number{font:2.2rem Georgia,serif;color:var(--gold);margin:12px 0}
 .growth-number small{display:inline;font:1rem "Microsoft YaHei","PingFang SC",system-ui,sans-serif;margin-left:8px}
 .growth-effects{line-height:1.8}
+.growth-retained{display:block;margin-top:10px}
+.growth-reset{display:flex;justify-content:space-between;align-items:center;width:100%;text-align:left}
 .growth-divider{border-top:1px solid var(--line);padding-top:14px;margin-top:14px}
 .growth-center{text-align:center}
 .growth-hero{display:flex;align-items:center;gap:12px}
@@ -49,4 +51,21 @@
   .growth-tabs>button{font-size:.84rem}
   .growth-stepper{gap:3px}
   .growth-talent-list{font-size:.9rem}
+}
+
+/* Visible click targets and touch feedback, scoped to the new layouts. */
+:is(.hq-layout,.hq-dialog,.growth-page,.growth-dialog,.growth-mode .action-bar) button{
+  min-width:44px;min-height:44px;background:#2a3c38;border-color:#667b6c;
+  box-shadow:0 2px 0 #101c19;transition:background .12s,box-shadow .12s,transform .12s;
+}
+:is(.hq-layout,.hq-dialog,.growth-page,.growth-dialog,.growth-mode .action-bar) button:hover:not(:disabled){background:#3c5147;border-color:#c3cbb2}
+:is(.hq-layout,.hq-dialog,.growth-page,.growth-dialog,.growth-mode .action-bar) button.selected{background:#454a35;color:#f5dcae;border-color:var(--gold)}
+:is(.hq-layout,.hq-dialog,.growth-page,.growth-dialog,.growth-mode .action-bar) button.primary{background:var(--gold);border-color:#e4cda4;color:#18211f;box-shadow:0 3px 0 #796644}
+:is(.hq-layout,.hq-dialog,.growth-page,.growth-dialog,.growth-mode .action-bar) button.primary:hover:not(:disabled){background:#ecd4a9}
+:is(.hq-layout,.hq-dialog,.growth-page,.growth-dialog,.growth-mode .action-bar) button:active:not(:disabled){background:#192923;box-shadow:inset 0 2px 5px #0a100dcc;transform:translateY(1px)}
+:is(.hq-layout,.hq-dialog,.growth-page,.growth-dialog,.growth-mode .action-bar) button.primary:active:not(:disabled){background:#bda36f;box-shadow:inset 0 2px 4px #665535}
+:is(.hq-layout,.hq-dialog,.growth-page,.growth-dialog,.growth-mode .action-bar) button:disabled{opacity:1;color:#91a097;background:#202b29;border-color:#34453d;box-shadow:none;transform:none}
+@media(prefers-reduced-motion:reduce){
+  :is(.hq-layout,.hq-dialog,.growth-page,.growth-dialog,.growth-mode .action-bar) button{transition:none}
+  :is(.hq-layout,.hq-dialog,.growth-page,.growth-dialog,.growth-mode .action-bar) button:active:not(:disabled){transform:none}
 }

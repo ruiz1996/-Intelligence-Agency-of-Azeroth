@@ -116,6 +116,7 @@ export function act(input,action,now=Date.now(),rng=random) {
   requireRule(input.schema===SCHEMA,'请先升级档案，旧档将完整保留');const s=completeRoster(input,now,rng);s.rule=RULE_VERSION;let result={};settleIdleGear(s,now,rng);
   switch(action.type) {
     case 'claim': result={...claimIdle(s,now),...claimIdleGear(s)};break;
+    case 'claimResources': result=claimIdle(s,now);break;
     case 'claimGear': result=claimIdleGear(s);break;
     case 'equipBest': {const recommendation=recommendEquipment(s,action.hero);s.equipment[action.hero]=recommendation.slots;result={equipped:recommendation.changed};break;}
     case 'formation': {const a=action.formation;requireRule(Array.isArray(a)&&a.length===6,'阵容应为六格');const ids=a.filter(Boolean);requireRule(ids.length>=1&&ids.length<=5&&new Set(ids).size===ids.length,'阵容需要一至五名不同特工');ids.forEach(id=>owned(s,id));s.formation=a.map(id=>id||null);break;}
