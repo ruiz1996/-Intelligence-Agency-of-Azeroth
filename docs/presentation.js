@@ -15,7 +15,7 @@ export function skillSummary(hero) {
     case 'form_dispatch': return '单手或空主手：无视苦痛与防御姿态；双手：致死打击与战斗姿态。战前换装切换，整场三波锁定。';
     case 'random_other_ally_effect_bonus': return `随机另一名存活队友获得「${a.buffName}」：伤害、治疗和护盾效果各+${percent(a.damageBonus)}，持续${a.durationSeconds}秒。`;
     case 'self_shield': return `获得自身${percent(a.shieldMaxHpFraction)}最大生命的护盾，持续${a.shieldDurationSeconds}秒。`;
-    case 'execute_direct_damage_with_war_intent': return `对当前目标造成${damage}伤害，每层战意再提高10%；命中前目标生命≤35%时再提高50%。消耗全部战意。`;
+    case 'execute_direct_damage_with_war_intent': return `对当前目标造成${damage}伤害，每层战意再提高${percent(hero.passive.damageBonusPerStack)}；命中前目标生命≤${percent(a.executeThresholdLessThanOrEqual)}时再提高${percent(a.executeMultiplier-1)}。消耗全部战意。`;
     case 'distinct_injured_ally_chain_heal': return '依次治疗最多3名不同的受伤队友，回复160% / 112% / 78.4%攻击的生命，优先生命比例低者。';
     case 'direct_damage_then_basic_followup_window': return `对当前目标造成${damage}伤害，刷新后续2次有效普攻的野兽顺劈。`;
     case 'single_direct_damage': return `对目标造成${damage}伤害。`;
