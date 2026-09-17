@@ -3,10 +3,11 @@ import { NEW_HEROES } from './new-heroes.js';
 import { WEAPON_PERMISSIONS, expandEquipment } from './equipment-expansion.js';
 import {applyBattleRules} from './battle-rules.js';
 import {applyHeroRework} from './hero-reworks.js';
+import {GROWTH_TALENTS} from './growth-rules.js';
 export {BATTLE_LIMITS,gearRewardBand} from './battle-rules.js';
-export const RULE_VERSION = 'agency-balance-tuning-8';
+export const RULE_VERSION = 'agency-rewind-growth-9';
 const characters=[...BASE_DATA.characters,...NEW_HEROES].map(applyHeroRework).map(h=>({...h,weapons:WEAPON_PERMISSIONS[h.id]}));
-export const DATA = {...applyBattleRules(BASE_DATA),characters,equipment:{...expandEquipment(BASE_DATA.equipment),sameTypeAffixWithinItemAllowed:true,affixSampling:'weighted_with_replacement'},balanceRevision:'hero-balance-v0.18',requiresBattleEngineVersion:RULE_VERSION,
+export const DATA = {...applyBattleRules(BASE_DATA),characters,permanentTalents:GROWTH_TALENTS,permanentGroupFocus:null,equipment:{...expandEquipment(BASE_DATA.equipment),sameTypeAffixWithinItemAllowed:true,affixSampling:'weighted_with_replacement'},balanceRevision:'rewind-growth-v0.26',requiresBattleEngineVersion:RULE_VERSION,
   recruitment:{...BASE_DATA.recruitment,weights:characters.map(h=>({name:h.name,weight:1,chanceBp:10000/characters.length}))}};
 export const SCHEMA = 2;
 export const MAX_INVENTORY = 600;

@@ -14,9 +14,9 @@ export function idleGearPreview(s,now=Date.now()){
 }
 // Always settle with the OLD source/talents before any action changes them.
 // At capacity, discard both excess time and fractional carry: no hidden backlog.
-export function settleIdleGear(s,now,rng){
+export function settleIdleGear(s,now,rng,options){
   initIdleGear(s,now);const g=s.idleGear,preview=idleGearPreview(s,now),at=Math.max(g.at,Math.trunc(now));
-  if(g.source)for(let i=0;i<preview.pending;i++)g.items.push(rollEquipment(TASKS[g.source],s,rng));
+  if(g.source)for(let i=0;i<preview.pending;i++)g.items.push(rollEquipment(TASKS[g.source],s,rng,options));
   g.carry=!g.source||g.items.length>=IDLE_GEAR_CAPACITY?0:(Math.max(0,at-g.at)+g.carry)%IDLE_GEAR_INTERVAL;g.at=at;
 }
 export function updateIdleGearSource(s,now){const task=historicalGear(s),g=s.idleGear;if(task&&(!g.source||task.index>TASKS[g.source].index)){g.source=task.id;if(!g.unlockedAt)g.unlockedAt=now;}}

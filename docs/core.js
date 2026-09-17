@@ -7,6 +7,12 @@ import { upgradeState } from './state-upgrades.js';
 import { WEAPON_REVISION } from './equipment-expansion.js';
 import {simulate} from './combat.js';
 import {gearRewardBand} from './battle-rules.js';
+import {GROWTH_REVISION} from './growth-rules.js';
+import {initGrowthIncome,recordGoldIncome,growthPayout} from './rewind-growth.js';
+import {breakthroughRecord,purchaseBreakthrough} from './hero-breakthrough.js';
+export * from './rewind-growth.js';
+export * from './hero-breakthrough.js';
+export {GROWTH_REVISION} from './growth-rules.js';
 export { WEAPON_REVISION } from './equipment-expansion.js';
 import { initIdleGear, settleIdleGear, updateIdleGearSource, claimIdleGear } from './idle-equipment.js';
 export * from './equipment-recommendation.js';
@@ -23,12 +29,14 @@ export function createState(now=Date.now()) {
     heroes:Object.fromEntries(HEROES.map((h,i)=>[h.id,{owned:i<3,star:1,shards:0}])),
     formation:['yan',null,null,'ling','jin',null],items:[],equipment:Object.fromEntries(HEROES.map(h=>[h.id,Array(15).fill(null)])),
     progress:{idle:0,gear:0,rogue:0},firsts:[],runClears:[],historyContribution:[],pendingHistoryContribution:[],buffs:[],enhancedBuff:null,
-    pendingBuff:null,pendingEquipment:[],challenge:null,history:[],points:'0',pointRemainder:0,talents:{},focus:'main_hand',migrations:{}};
+    pendingBuff:null,pendingEquipment:[],challenge:null,history:[],points:'0',pointRemainder:'0',talents:{},rebirthPlan:null,migrations:{}};
   for(const spec of DATA.initial.equipment) {
     const hero=HEROES.find(h=>h.name===spec.character),template=DATA.equipment.templates115.find(t=>t.tier===1&&t.slot===spec.template);
     const item=makeItem(template.id,0);s.items.push(item);s.equipment[hero.id][templateSlots(template)[0]]=item.id;
   }
-  s.migrations[WEAPON_REVISION]={at:now,report:[]};initIdleGear(s,now);return s;
+  s.migrations[WEAPON_REVISION]={at:now,report:[]};s.migrations[GROWTH_REVISION]={at:now,refundedPoints:'0',refunded:{},incomeMode:'gold'};
+  for(const h of HEROES)s.heroes[h.id].breakthrough=breakthroughRecord(s,h.id);
+  initGrowthIncome(s);initIdleGear(s,now);return s;
 }
 export function idleRates(s) {
   const r=CATALOG.idle[s.progress.idle-1]?.rewards;
@@ -42,6 +50,7 @@ export function idlePreview(s,now=Date.now()) {
 }
 function claimIdle(s,now) {
   const reward=idlePreview(s,now);for(const key of ['gold','recruit'])s.wallet[key]=(walletUnits(s,key)+BigInt(reward[key])).toString();
+  recordGoldIncome(s,reward.gold);
   s.lastIdleAt=Math.max(s.lastIdleAt,Math.trunc(now));return reward;
 }
 export function pointCost(id,level) {
@@ -54,13 +63,13 @@ function totalPointCost(id,level) {
   if(t.max_level!==null){requireRule(l<=BigInt(t.max_level),'已达该功能上限');return t.costs.slice(0,Number(l)).reduce((n,c)=>n+BigInt(c),0n);}
   return (l*(l+1n)*(2n*l+1n)/6n+2n*l*(l+1n)+16n*l+(l+1n)/2n)/2n;
 }
-export function rebirthPreview(s) {
-  const base=s.runClears.reduce((n,id)=>n+TASKS[id].rebirthContributionSubunits,0),extra=s.pendingHistoryContribution.reduce((n,id)=>n+TASKS[id].rebirthContributionSubunits/4,0),total=base+extra+s.pointRemainder;
-  return {eligible:s.runClears.includes('AX-05')&&!s.pendingBuff&&!s.challenge&&s.pendingEquipment.length===0,base,extra,points:String(Math.floor(total/240)),remainder:total%240};
+export function rebirthPreview(s,now=s.lastIdleAt) {
+  return growthPayout(s,idlePreview(s,now).gold);
 }
-export function allocationPreview(s,allocation=null) {
-  const payout=rebirthPreview(s),oldPaid=Object.values(s.talents).reduce((n,t)=>n+BigInt(t.paid),0n),budget=BigInt(s.points)+BigInt(payout.points)+oldPaid;
-  const next=allocation??Object.fromEntries(Object.entries(s.talents).map(([id,t])=>[id,t.level]));requireRule(next&&typeof next==='object'&&!Array.isArray(next),'加点方案无效');
+export function allocationPreview(s,allocation=null,now=s.lastIdleAt) {
+  const payout=rebirthPreview(s,now),oldPaid=Object.values(s.talents).reduce((n,t)=>n+BigInt(t.paid),0n),budget=BigInt(s.points)+BigInt(payout.points)+oldPaid;
+  if(allocation===null)return {talents:clone(s.talents),budget:budget.toString(),spent:oldPaid.toString(),remaining:(budget-oldPaid).toString(),carry:true};
+  const next=allocation;requireRule(next&&typeof next==='object'&&!Array.isArray(next),'加点方案无效');
   let spent=0n;const talents={};
   for(const [id,level]of Object.entries(next)) {
     const l=natural(level);requireRule(TALENT_BY_ID[id],'加点节点不存在');if(!l)continue;
@@ -68,13 +77,13 @@ export function allocationPreview(s,allocation=null) {
     const paid=previous&&l>=oldLevel?BigInt(previous.paid)+totalPointCost(id,l)-totalPointCost(id,oldLevel):totalPointCost(id,l);
     spent+=paid;talents[id]={level:l.toString(),paid:paid.toString()};
   }
-  requireRule(spent<=budget,'下一轮加点超过可用回溯点');return {talents,budget:budget.toString(),spent:spent.toString(),remaining:(budget-spent).toString()};
+  requireRule(spent<=budget,`下轮方案还差${spent-budget}点`);return {talents,budget:budget.toString(),spent:spent.toString(),remaining:(budget-spent).toString()};
 }
 function grantHero(s,id) { const h=s.heroes[id];if(h.owned){h.shards+=10;return {hero:id,shards:10};}h.owned=true;h.star=1;return {hero:id,new:true}; }
 function space(s,count=1) { requireRule(s.items.length+s.pendingEquipment.length+count<=MAX_INVENTORY,'背包空间不足，请先分解未穿戴且未锁定的装备'); }
 function owned(s,id) { requireRule(HERO_BY_ID[id]&&s.heroes[id].owned,'未拥有该特工');return s.heroes[id]; }
 function itemById(s,id) { const item=s.items.find(i=>i.id===id);requireRule(item,'装备不存在');return item; }
-export function completeRoster(old,now=Date.now()) {return upgradeState(old,now);}
+export function completeRoster(old,now=Date.now(),rng=random) {return upgradeState(old,now,rng);}
 export function migrateState(old,now=Date.now()) {
   if(old.schema===SCHEMA)return completeRoster(old,now);requireRule(old.schema===1,'档案版本不受支持，原档已保留');
   const s=createState(now),report=[];s.items=[];for(const id in s.equipment)s.equipment[id].fill(null);
@@ -99,11 +108,12 @@ export function migrateState(old,now=Date.now()) {
   for(const id in s.equipment){const main=s.items.find(i=>i.id===s.equipment[id][0]);if(main&&TEMPLATE_BY_ID[main.templateId].twoHand)s.equipment[id][1]=null;}
   report.push('旧五名特工按稳定ID映射岗位，保留星级/碎片；旧装备保留实例、品质、词条、等级与实付台账，固定属性以迁移前快照延续。');
   report.push('旧任务进度、肉鸽和首通封存在快照；新目录从头开始，不发新首通或AX05资格。旧自动5%奖励已由48×有效旧重生次数的回溯点替代，不叠加。');
-  report.push('武器按新许可映射；不兼容副手卸回背包。旧未结算挑战封存；原奖励已成功结算的货币与装备保留。');log(s,'档案已升级：旧档快照完整保留，可导出核对。',now);return s;
+  report.push('武器按新许可映射；不兼容副手卸回背包。旧未结算挑战封存；原奖励已成功结算的货币与装备保留。');log(s,'档案已升级：旧档快照完整保留，可导出核对。',now);
+  s.migrations[GROWTH_REVISION]={at:now,refundedPoints:'0',refunded:{},incomeMode:'gold'};return completeRoster(s,now);
 }
 export function act(input,action,now=Date.now(),rng=random) {
   requireRule(action&&typeof action==='object','操作无效');if(action.type==='migrate')return {state:migrateState(input,now),result:{migrated:input.schema!==SCHEMA}};
-  requireRule(input.schema===SCHEMA,'请先升级档案，旧档将完整保留');const s=completeRoster(input,now);s.rule=RULE_VERSION;let result={};settleIdleGear(s,now,rng);
+  requireRule(input.schema===SCHEMA,'请先升级档案，旧档将完整保留');const s=completeRoster(input,now,rng);s.rule=RULE_VERSION;let result={};settleIdleGear(s,now,rng);
   switch(action.type) {
     case 'claim': result={...claimIdle(s,now),...claimIdleGear(s)};break;
     case 'claimGear': result=claimIdleGear(s);break;
@@ -111,6 +121,13 @@ export function act(input,action,now=Date.now(),rng=random) {
     case 'formation': {const a=action.formation;requireRule(Array.isArray(a)&&a.length===6,'阵容应为六格');const ids=a.filter(Boolean);requireRule(ids.length>=1&&ids.length<=5&&new Set(ids).size===ids.length,'阵容需要一至五名不同特工');ids.forEach(id=>owned(s,id));s.formation=a.map(id=>id||null);break;}
     case 'recruit': {const count=action.count??1;requireRule([1,10].includes(count),'招募次数无效');spend(s,'recruit',100*count);result.recruits=Array.from({length:count},()=>grantHero(s,HEROES[weighted(HEROES.map(()=>1),rng)].id));break;}
     case 'star': {const h=owned(s,action.hero),cost=[20,40,80,120][h.star-1];requireRule(cost&&h.shards>=cost,'碎片不足或已满星');h.shards-=cost;h.star++;break;}
+    case 'breakthrough': result=purchaseBreakthrough(s,action);break;
+    case 'saveRebirthPlan': {
+      requireRule(!s.challenge,'请先结束当前战斗');
+      if(action.allocation===null)s.rebirthPlan=null;
+      else {allocationPreview(s,action.allocation,now);s.rebirthPlan={allocation:clone(action.allocation),rule:RULE_VERSION,cycle:s.cycle};}
+      result={planSaved:!!s.rebirthPlan};break;
+    }
     case 'exchange': {const h=owned(s,action.hero);requireRule(h.star<5,'满星特工无需兑换');spend(s,'recruit',300);h.shards+=10;break;}
     case 'recycleShards': {const h=owned(s,action.hero),n=Number(natural(action.count,1n));requireRule(h.star===5&&Number.isSafeInteger(n)&&n<=h.shards,'仅可回收满星特工已有碎片');h.shards-=n;credit(s,'recruit',BigInt(n)*5n);break;}
     case 'equip': {
@@ -127,10 +144,10 @@ export function act(input,action,now=Date.now(),rng=random) {
       requireRule(levels>0,'金币不足');item.invested=(BigInt(item.invested)+paid).toString();result={levels,paid:paid.toString()};break;
     }
     case 'salvage': {
-      const ids=action.items??[action.item];requireRule(Array.isArray(ids)&&ids.length>0&&ids.length<=600&&new Set(ids).size===ids.length,'分解列表无效');let coins=0n;
-      for(const id of ids){const item=itemById(s,id);requireRule(!item.locked&&!Object.values(s.equipment).some(slots=>slots.includes(id)),'锁定或已穿戴的装备不能分解');if(action.quality!==undefined)requireRule(item.quality===action.quality,'分解预览已变化，请重新选择');coins+=salvageValue(item,s);}
+      const ids=action.items??[action.item];requireRule(Array.isArray(ids)&&ids.length>0&&ids.length<=600&&new Set(ids).size===ids.length,'分解列表无效');let coins=0n,principal=0n;
+      for(const id of ids){const item=itemById(s,id);requireRule(!item.locked&&!Object.values(s.equipment).some(slots=>slots.includes(id)),'锁定或已穿戴的装备不能分解');if(action.quality!==undefined)requireRule(item.quality===action.quality,'分解预览已变化，请重新选择');coins+=salvageValue(item,s);principal+=BigInt(item.invested);}
       if(action.expectedCoins!==undefined)requireRule(coins.toString()===action.expectedCoins,'分解预览已变化，请重新选择');
-      s.items=s.items.filter(i=>!ids.includes(i.id));credit(s,'gold',coins);result={coins:coins.toString(),count:ids.length};break;
+      s.items=s.items.filter(i=>!ids.includes(i.id));credit(s,'gold',coins);recordGoldIncome(s,(coins-principal)*SCALE);result={coins:coins.toString(),count:ids.length};break;
     }
     case 'start': {
       requireRule(!s.pendingBuff,'请先完成异常强化选择');const task=TASKS[action.taskId];requireRule(task,'任务不存在');requireRule(taskUnlocked(s,task),'请先完成前置任务');
@@ -164,7 +181,7 @@ export function act(input,action,now=Date.now(),rng=random) {
           while(options.length<2&&pool.length)options.push(pool.splice(weighted(pool.map(b=>b.weight),rng),1)[0].id);
           options.push(r.choices.find(b=>b.sampling==='guaranteed').id);s.pendingBuff={taskId:task.id,options};result.buff=true;}
       }
-      credit(s,'gold',gold);credit(s,'recruit',recruit);Object.assign(result,{first,runFirst,gold:String(gold),recruit:String(recruit)});log(s,`${task.name} · 完成${first?' / 历史首通':''}`,now);break;
+      credit(s,'gold',gold);recordGoldIncome(s,BigInt(gold)*SCALE);credit(s,'recruit',recruit);Object.assign(result,{first,runFirst,gold:String(gold),recruit:String(recruit)});log(s,`${task.name} · 完成${first?' / 历史首通':''}`,now);break;
     }
     case 'buff': {
       requireRule(s.pendingBuff?.options.includes(action.buff),'强化选项已过期');if(BUFF_BY_ID[action.buff].effect_type==='enhance_owned'){requireRule(s.buffs.includes(action.target)&&DATA.rogueEnhanceWhitelist.some(w=>w.choice_id===action.target),'请选择已有的可精修强化');s.enhancedBuff=action.target;}s.buffs.push(action.buff);s.pendingBuff=null;break;
@@ -174,8 +191,15 @@ export function act(input,action,now=Date.now(),rng=random) {
       requireRule(s.items.length<MAX_INVENTORY,'背包已满');const item=makeItem(t.id,1,rng);s.items.push(item);s.pendingEquipment.splice(index,1);result={item};break;
     }
     case 'rebirth': {
-      const payout=rebirthPreview(s);requireRule(payout.eligible,'本轮完成第五收容任务，并处理待领奖励及挑战后可回溯');const plan=allocationPreview(s,action.allocation);requireRule(DATA.permanentGroupFocus.choices.includes(action.focus||s.focus),'搜集目标无效');claimIdle(s,now);
-      s.points=plan.remaining;s.talents=plan.talents;s.focus=action.focus||s.focus;s.pointRemainder=payout.remainder;s.pendingHistoryContribution=[];s.rebirths++;s.cycle++;s.wallet.gold=decimalUnits(1600).toString();s.progress={idle:0,gear:0,rogue:0};s.runClears=[];s.buffs=[];s.enhancedBuff=null;s.challenge=null;
+      claimIdle(s,now);const payout=rebirthPreview(s);requireRule(payout.eligible,'本轮完成第五收容任务，并处理待领奖励及挑战后可回溯');
+      const allocation=action.allocation===undefined?s.rebirthPlan?.allocation??null:action.allocation;
+      if(s.rebirthPlan&&action.allocation===undefined)requireRule(s.rebirthPlan.rule===RULE_VERSION&&s.rebirthPlan.cycle===s.cycle,'下轮方案已过期，请重新保存');
+      const plan=allocationPreview(s,allocation);
+      if(action.expectedPoints!==undefined)requireRule(payout.points===String(action.expectedPoints),`回溯收益已变化：${action.expectedPoints} → ${payout.points}点，请重新确认`);
+      if(action.expectedSpent!==undefined)requireRule(plan.spent===String(action.expectedSpent),'加点费用已变化，请重新确认');
+      if(payout.mode==='gold')s.lifetimeSettledEligibleGoldUnits=(BigInt(s.lifetimeSettledEligibleGoldUnits)+BigInt(s.runEarnedGoldUnits)).toString();
+      s.rebirthIncome={mode:'gold'};s.runEarnedGoldUnits='0';s.rebirthPlan=null;
+      s.points=plan.remaining;s.talents=plan.talents;s.pointRemainder=payout.remainder;s.pendingHistoryContribution=[];s.rebirths++;s.cycle++;s.wallet.gold=decimalUnits(1600).toString();s.progress={idle:0,gear:0,rogue:0};s.runClears=[];s.buffs=[];s.enhancedBuff=null;s.challenge=null;
       for(const item of s.items){item.level='1';item.invested='0';}result={points:payout.points,cycle:s.cycle};log(s,`时间回溯 · 第${s.cycle}轮行动，加点配置已生效`,now);break;
     }
     default:throw new GameError('未知操作');

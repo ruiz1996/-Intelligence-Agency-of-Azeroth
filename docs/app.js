@@ -2,7 +2,7 @@ import {
   DATA,HEROES,HERO_BY_ID,TEMPLATES,TEMPLATE_BY_ID,CATALOG,TASKS,BUFF_BY_ID,TALENTS,
   SLOT_NAMES,QUALITY,AFFIX_NAMES,RULE_VERSION,SCHEMA,SCALE,formatMoney,formatInteger,
   heroStats,heroDefinition,upgradeCost,salvageValue,canEquip,templateSlots,idleRates,idlePreview,
-  rebirthPreview,allocationPreview,pointCost,act,equipmentType,templateAvailable,idleGearPreview,WEAPON_REVISION,taskUnlocked,latestUnlockedTask,
+  rebirthPreview,act,equipmentType,templateAvailable,idleGearPreview,WEAPON_REVISION,taskUnlocked,latestUnlockedTask,breakthroughPreview,
 } from './core.js';
 import {createBattleReport} from './battle-report.js';
 import {archiveClues,idleGearCard,idleGearTime,reportContent,revealStyle,revealSound,soundEnabled,toggleSound,unlockSound} from './feature-v5.js';
@@ -11,13 +11,14 @@ import {esc,num,percent,art,series,itemName,itemStatsText,slotIcons,skillText,pa
 import {buffDisplay} from './buff-display.js';
 import {enemyAppearance,battleScene,preloadEnemies} from './enemy-art.js';
 import {BattleEffects,motionPreference,reducedMotion} from './battle-effects.js';
+import {rebirthView,breakthroughView,allocationEditor,planPreview,breakthroughChanges,changesMarkup,incomeDetails,phaseNames} from './growth-ui.js';
 
 const root=document.querySelector('#app'),modal=document.querySelector('#modal'),toastNode=document.querySelector('#toast');
-const titles={home:'情报局总部',tasks:'任务中心',heroes:'特工',formation:'出战阵容',gear:'装备',recruit:'招募',rogue:'收容强化',rebirth:'时间回溯',battle:'行动中'};
+const titles={home:'情报局总部',tasks:'任务中心',heroes:'特工',formation:'出战阵容',gear:'装备',recruit:'招募',rogue:'收容强化',rebirth:'回溯强化',breakthrough:'角色突破',battle:'行动中'};
 const nav=[['home','总部','⌂'],['tasks','任务','◇'],['heroes','特工','▣'],['gear','装备','⚒'],['recruit','招募','＋']];
-const defaults={view:'home',kind:'idle',taskId:'R001',selectedHero:'yan',gearTab:'wear',gearFilterSlot:null,selectedSlot:0,quality:'all',query:'',page:0,recruitTab:'draw',rebirthTab:'plan',selectedBuff:null};
+const defaults={view:'home',kind:'idle',taskId:'R001',selectedHero:'yan',gearTab:'wear',gearFilterSlot:null,selectedSlot:0,quality:'all',query:'',page:0,recruitTab:'draw',breakthroughPhase:'attribute_2',breakthroughCount:1,selectedBuff:null};
 let ui={...defaults},sheet=null,state,client,busy=false,battle=null,worker=null,battleTimer,toastTimer,afterBack=null;
-let formationDraft=null,allocation=null,focus='main_hand',restoreFocus=null;
+let formationDraft=null,restoreFocus=null;
 let battleEffects=null;
 let preferredBattleSpeed=2;
 try {
@@ -42,7 +43,7 @@ const unlocked=t=>taskUnlocked(state,t);
 const stars=id=>'★'.repeat(state.heroes[id].star);
 const draftDirty=()=>formationDraft&&JSON.stringify(formationDraft)!==JSON.stringify(state.formation);
 const sheetKey=()=>sheet?JSON.stringify(sheet):null;
-const screenKey=()=>`${ui.view}:${ui.gearTab}:${ui.gearFilterSlot}:${ui.recruitTab}:${ui.rebirthTab}`;
+const screenKey=()=>`${ui.view}:${ui.gearTab}:${ui.gearFilterSlot}:${ui.recruitTab}:${ui.selectedHero}:${ui.breakthroughPhase}`;
 
 function saveUI(){sessionStorage.setItem('ax-ui-v2',JSON.stringify(ui));}
 function routeState(){return {ax:true,ui:{...ui},sheet:sheet?structuredClone(sheet):null};}
@@ -106,7 +107,7 @@ async function connect(mode){
   if(modal.open)modal.close();
   client=new GameClient(mode);root.innerHTML='<p class="loading">正在读取档案…</p>';
   const pendingAction=client.pending?.action;
-  try{const envelope=await client.load();state=envelope.state;focus=state.focus||'main_hand';
+  try{const envelope=await client.load();state=envelope.state;
     if(state.schema===SCHEMA){if(!own(ui.selectedHero))ui.selectedHero=ownedHeroes()[0]?.id||'yan';if(!sessionStorage.getItem('ax-ui-v2'))selectProgress(ui.kind,false);}
     stamp();render();if(envelope.result)success(pendingAction||{},envelope.result);else if(client.presentation)showReceipt();
   }catch(e){root.innerHTML=`<main class="welcome"><section class="panel"><h1>暂时无法读取档案</h1><p>${esc(e.message)}</p><div class="actions">${button('重试读取','reload')}${button('返回登录','logout')}</div></section></main>`;toast(e.message);}
@@ -120,7 +121,9 @@ async function mutate(action,retry=false){
 function success(action,result){
   if(action.type==='start'&&result.challenge){beginBattle(result.challenge);return;}
   if(action.type==='formation'){formationDraft=null;transition('heroes',{},true);toast('阵容已保存');return;}
-  if(action.type==='rebirth'){allocation=null;marked.clear();if(!unlocked(currentTask()))selectProgress(ui.kind,false);transition('home',{},true);toast('新的行动开始，加点已生效');return;}
+  if(action.type==='rebirth'){marked.clear();if(!unlocked(currentTask()))selectProgress(ui.kind,false);transition('home',{},true);toast('回溯完成，未用点数已保留');return;}
+  if(action.type==='saveRebirthPlan'){sheet=null;stamp();render();toast(result.planSaved?'下轮方案已保存':'已恢复沿用当前加点');return;}
+  if(action.type==='breakthrough'){sheet=null;stamp();render();root.querySelector('.growth-page')?.classList.add('growth-success');toast(`突破成功 · 永久投入${formatInteger(result.paid)}点`);return;}
   if(action.type==='buff'){ui.selectedBuff=null;transition('rogue',{},true);toast('强化已生效');return;}
   if(action.type==='abandon'){const target=sheet?.type==='retreat'?sheet.data:{next:'tasks'},recent=client.recentBattle,show=battle||recent?.challengeId===action.challengeId;stopBattle();transition(target.next||'tasks',target.patch||{},true);if(show&&recent)openSheet('result',{taskId:recent.taskId,outcome:'retreat',report:recent.report,tab:'stats'});else toast('已撤回行动');return;}
   if(result.outcome||result.recruits||result.gearItems?.length){showReceipt();return;}
@@ -166,7 +169,7 @@ function render(){
   if(state.schema!==SCHEMA){root.innerHTML=`<main class="welcome"><section class="panel"><h1>旧档案升级</h1><p>保留特工、装备收藏与完整原档。任务重新开始，原重生奖励转换为回溯点。</p><div class="actions">${button('导出原档','export')}${button('保留快照并升级','migrate','',false,'primary')}</div>${client.pending?button('重试同步','retry'):''}</section></main>`;return;}
   if(ui.view==='battle'&&!battle)ui.view='tasks';
   const content=pages[ui.view](),message=battle?'':notice();
-  root.innerHTML=`<div class="shell ${battle?'battle-mode':''}"><aside class="sidebar"><div class="brand"><span class="brand-mark">AX</span><strong>艾星情报局</strong></div><nav>${nav.map(([id,name,icon])=>button(`<span>${icon}</span>${name}`,'nav',`data-view="${id}"`,false,id===ui.view?'active':'')).join('')}</nav><span class="cycle">第${state.cycle}轮行动</span></aside><main class="main"><header class="topbar">${battle?battleHeader():`${button(ui.view==='home'?'AX':'‹','back','aria-label="返回"',false,'icon-button')}<h1>${esc(titles[ui.view])}</h1>${button('⋯','more','aria-label="更多"',false,'icon-button')}`}</header>${battle?'':`<div class="resources"><span>金币 <strong id="gold">${money(state.wallet.gold)}</strong></span><span>招募点 <strong id="recruit-points">${money(state.wallet.recruit)}</strong></span><span>回溯点 <strong>${formatInteger(state.points)}</strong></span></div>`}${message?`<div class="notice" role="status">${message}</div>`:''}<section class="page-body" tabindex="-1">${content.body}</section><div class="action-bar">${content.actions}</div><nav class="mobile-nav" aria-label="主要导航">${nav.map(([id,name,icon])=>button(`<span aria-hidden="true">${icon}</span>${name}`,'nav',`data-view="${id}"`,false,id===ui.view||id==='heroes'&&ui.view==='formation'?'active':'')).join('')}</nav></main></div>`;
+  root.innerHTML=`<div class="shell ${['rebirth','breakthrough'].includes(ui.view)?'growth-mode':''} ${battle?'battle-mode':''}"><aside class="sidebar"><div class="brand"><span class="brand-mark">AX</span><strong>艾星情报局</strong></div><nav>${nav.map(([id,name,icon])=>button(`<span>${icon}</span>${name}`,'nav',`data-view="${id}"`,false,id===ui.view?'active':'')).join('')}</nav><span class="cycle">第${state.cycle}轮行动</span></aside><main class="main"><header class="topbar">${battle?battleHeader():`${button(ui.view==='home'?'AX':'‹','back','aria-label="返回"',false,'icon-button')}<h1>${esc(titles[ui.view])}</h1>${button('⋯','more','aria-label="更多"',false,'icon-button')}`}</header>${battle?'':`<div class="resources"><span>金币 <strong id="gold">${money(state.wallet.gold)}</strong></span><span>招募点 <strong id="recruit-points">${money(state.wallet.recruit)}</strong></span><span>可用回溯点 <strong>${formatInteger(state.points)}</strong></span></div>`}${message?`<div class="notice" role="status">${message}</div>`:''}<section class="page-body" tabindex="-1">${content.body}</section><div class="action-bar">${content.actions}</div><nav class="mobile-nav" aria-label="主要导航">${nav.map(([id,name,icon])=>button(`<span aria-hidden="true">${icon}</span>${name}`,'nav',`data-view="${id}"`,false,id===ui.view||id==='heroes'&&ui.view==='formation'?'active':'')).join('')}</nav></main></div>`;
   const body=document.querySelector('.page-body');body.scrollTop=scrollPositions.get(screenKey())||0;
   bindInputs();if(battle)drawBattle();renderSheet();
   if(focused){const target=document.getElementById(focused.id);if(target){target.focus({preventScroll:true});try{target.setSelectionRange(focused.start,focused.end);}catch{}}}
@@ -215,23 +218,19 @@ function roguePage(){const pending=state.pendingBuff;if(pending&&!pending.option
   body:pending?`<h2 class="compact-title">${esc(TASKS[pending.taskId].name)}</h2><p class="muted">选择一份本轮强化</p><div class="choice-grid">${pending.options.map(id=>{const buff=BUFF_BY_ID[id];return button(`<strong>${buff.name}</strong><p>${esc(buffDisplay(id).summary)}</p>`,'selectBuff',`data-buff="${id}"`,false,`choice-card ${ui.selectedBuff===id?'selected':''}`);}).join('')}</div>${ui.selectedBuff?`<section class="panel selected-effect">${ownedBuffText(ui.selectedBuff)}</section>`:''}`:'<section class="panel empty"><h2>暂无待选强化</h2></section>',
   actions:button(`已有强化 ${state.buffs.length}`,'buffArchive')+(pending?button('确认选择','confirmBuff','',!ui.selectedBuff,'primary'):button('前往收容','category','data-kind="rogue"',false,'primary')),
 };}
-const resetDetails=()=>'<ul class="consequences"><li>保留特工、星级、碎片、招募点、装备收藏及挂机装备暂存；挂机来源保留历史最高通关。</li><li>已解锁的资源、装备和收容副本保持开放。</li><li>全部装备回到1级，本轮强化投入清零，之后分解不再返还这些投入。</li><li>本轮通关进度、挂机金币/招募点产速与收容强化重置；回溯贡献按新一轮实际通关计算。</li><li>当前金币重置为1600；下一轮加点和搜集倾向立即生效。</li></ul>';
-function rebirthPlan(){if(allocation===null)allocation=Object.fromEntries(Object.entries(state.talents).map(([id,t])=>[id,t.level]));try{return {plan:allocationPreview(state,allocation)};}catch(e){return {error:e.message};}}
-function qualification(){if(!state.runClears.includes('AX-05'))return `先完成「${TASKS['AX-05'].name}」`;if(state.challenge)return '请先结算或撤回当前行动';if(state.pendingBuff)return '请先选择收容强化';if(state.pendingEquipment.length)return '请先领取自选装备';return '已取得回溯资格';}
-function rebirthPage(){const preview=rebirthPreview(state),{plan,error}=rebirthPlan();let body=`<section class="panel rebirth-summary"><strong>预计获得 ${formatInteger(preview.points)} 回溯点</strong><small>${qualification()}</small></section><div class="tabs">${button('下一轮加点','rebirthTab','data-tab="plan"',false,ui.rebirthTab==='plan'?'selected':'')}${button('保留与重置','rebirthTab','data-tab="rules"',false,ui.rebirthTab==='rules'?'selected':'')}</div>`;
-  if(ui.rebirthTab==='plan'){body+=`<div class="plan-budget"><span class="${error?'error':''}">${error||`可用 ${formatInteger(plan.budget)} · 已分配 ${formatInteger(plan.spent)}`}</span>${button('重分配','resetPlan','',false,'quiet')}</div><div class="talents">${TALENTS.map(t=>{const level=BigInt(allocation[t.id]||0),full=t.max_level!==null&&level>=BigInt(t.max_level),cost=full?'已满':`${formatInteger(pointCost(t.id,level+1n))}点`;return `<article><div><strong>${t.name}</strong><small>每级 +${percent(t.per_level)}${t.max_level===null?'':` · 上限${t.max_level}级`}</small><small>当前 ${state.talents[t.id]?.level||0} → 下轮 ${level}</small></div><div class="stepper">${button('−','talent',`data-id="${t.id}" data-delta="-1" aria-label="减少${t.name}"`,level===0n)}<span>${level}</span>${button('＋','talent',`data-id="${t.id}" data-delta="1" aria-label="增加${t.name}"`,full)}<small>下一级 ${cost}</small></div></article>`;}).join('')}</div><label class="focus-select">下一轮搜集倾向<select id="focus"${BigInt(allocation.P11||0)<1n?' disabled':''}><option value="main_hand"${focus==='main_hand'?' selected':''}>主手武器</option><option value="armor_and_offhand"${focus==='armor_and_offhand'?' selected':''}>防具与副手</option><option value="jewelry"${focus==='jewelry'?' selected':''}>首饰</option></select></label><p class="muted">${BigInt(allocation.P11||0)<1n?'未加点目标搜集，倾向不生效':'本轮保持此倾向'}</p>`;}else body+=`<section class="panel">${resetDetails()}</section>`;
-  return {body,actions:`<span class="bar-note">${error?'调整加点后继续':`下轮剩余 ${formatInteger(plan.remaining)}点`}</span>${button('确认回溯','rebirth','',!preview.eligible||!!error,'primary')}`};
-}
+const resetDetails=()=>'<ul class="consequences"><li>保留特工、星级、碎片、角色永久突破、招募点、装备收藏及挂机装备暂存；挂机来源保留历史最高通关。</li><li>已解锁的资源、装备和收容副本保持开放。</li><li>全部装备回到1级，本轮强化投入清零，之后分解不再返还这些投入。</li><li>本轮通关进度、挂机金币/招募点产速与收容强化重置；有效金币累计计价进度与小数结余保留。</li><li>当前金币重置为1600；默认沿用当前全局加点；已保存新方案则应用新方案。</li></ul>';
+function rebirthPage(){return rebirthView(state,client.now(),button);}
+function breakthroughPage(){return breakthroughView(state,ui.selectedHero,ui.breakthroughPhase,ui.breakthroughCount,button);}
 function battleHeader(){return button(esc(currentTask().name),'taskDetails','title="'+esc(currentTask().name)+'"',false,'battle-title')+'<span id="battle-wave">第'+battle.wave+' / 3波</span>'+button(battle.speed+'×','cycleSpeed','aria-label="切换倍速"')+button('撤退','retreat');}
 function battlePage(){return {body:`<div class="battle-progress"><div class="wave-pips" aria-label="战斗波次">${[1,2,3].map(n=>'<i data-wave="'+n+'" class="'+(n<=battle.wave?'reached':'')+'"></i>').join('')}</div><span id="battle-time">${battleTime(battle.elapsed)}</span></div><div class="battlefield scene-${battleScene(currentTask())}" data-motion="${reducedMotion()?'reduced':'full'}"><div class="scene-far" aria-hidden="true"></div><div class="scene-floor" aria-hidden="true"></div><div class="scene-haze" aria-hidden="true"></div><div class="enemy-grid" id="enemy-grid" aria-label="敌方阵容"></div><div id="battle-announcement" class="battle-announcement" aria-live="off"></div><div class="ally-grid" id="ally-grid" aria-label="我方阵容">${Array.from({length:6},(_,index)=>'<div class="empty-battle-slot" aria-hidden="true" style="grid-column:'+(index%3+1)+';grid-row:'+(Math.floor(index/3)+1)+'"></div>').join('')}</div><div class="battle-effects" aria-hidden="true"></div></div>`,actions:button('记录','battleLog')+button('强化','buffArchive')+button('显示','battleDisplay')};}
-const pages={home:homePage,tasks:tasksPage,heroes:heroesPage,formation:formationPage,gear:gearPage,recruit:recruitPage,rogue:roguePage,rebirth:rebirthPage,battle:battlePage};
+const pages={home:homePage,tasks:tasksPage,heroes:heroesPage,formation:formationPage,gear:gearPage,recruit:recruitPage,rogue:roguePage,rebirth:rebirthPage,breakthrough:breakthroughPage,battle:battlePage};
 
 function statsList(stats){return `<dl class="stats-list">${Object.entries(stats).filter(([k,v])=>AFFIX_NAMES[k]&&typeof v==='number').map(([k,v])=>`<div><dt>${AFFIX_NAMES[k]}</dt><dd>${k.endsWith('Pct')||['crit','haste','dodge','critDamage','lifesteal','reduction'].includes(k)?percent(v):num(v)}</dd></div>`).join('')}</dl>`;}
 const statValue=(key,value)=>['crit','critDamage'].includes(key)?percent(value):num(value);
 function ownedBuffText(id,enhanced=state.enhancedBuff===id){const b=buffDisplay(id,enhanced);return esc(b.summary)+(b.detail?`<details class="effect-details"><summary>效果详情</summary><p>${esc(b.detail)}</p></details>`:'');}
 function itemDetails(i){return `<div class="item-detail"><strong class="q${i.quality}">${esc(itemName(i))}</strong><p>${equipmentType(i)} · ${series(TEMPLATE_BY_ID[i.templateId].tier)} · ${QUALITY[i.quality]} · ${i.level}级</p><p>${itemStatsText(i)}</p>${i.affixes.map(a=>`<p>${AFFIX_NAMES[a.stat]||AFFIX_NAMES[a.key]||esc(a.stat||a.key)} +${percent(a.value)}</p>`).join('')}</div>`;}
 function upgradePlan(i,count){let paid=0n,levels=0,total=0n;const draft={...i};for(let n=0;n<count;n++){const cost=upgradeCost(draft,state);total+=cost;if(paid+cost<=BigInt(state.wallet.gold)/SCALE){paid+=cost;levels++;}draft.level=(BigInt(draft.level)+1n).toString();}return {paid,levels,total};}
-function taskDetails(task){const r=task.rewards;return `${rewardTags(task)}<h3>敌方情报</h3><p>三波 · ${taskTime(task)} · ${task.environmentKind?'总余势 '+num(task.totalEnvironmentEnergy):'总生命 '+num(task.totalBaseHp)}</p>${task.environmentKind?'<p>不可攻击；每次攻击完成后余势减少100，全部耗尽且仍有队员存活即通过。</p>':''}${task.waves.map(w=>`<h3>第${w.index}波</h3><div class="enemy-preview">${w.enemies.map(e=>`<span><strong>${esc(e.name)}</strong><small>${e.type==='environment'?'环境 · 余势'+num(e.hp):e.type==='boss'?'首领 · 2×2':e.type==='elite'?'精英 · 2×1':'普通 · 1×1'}</small><small>攻击 ${num(e.atk)}</small></span>`).join('')}</div>`).join('')}${task.kind==='rogue'?`<h3>收容机制</h3><p>${mechanicText(task)}</p><p>本轮限领一次。</p>`:''}${task.kind==='gear'?`<h3>装备掉落</h3><p>≤90秒共2件随机装备；≤150秒普通通关金币翻倍，两项可叠加。历史首通自选另计。</p><p>${series(r.tier)}系列${r.nextTierChanceBp?`，有${r.nextTierChanceBp/100}%概率提升为${series(r.tier+1)}系列`:''}</p><p>${r.qualityChanceBp.map((p,i)=>QUALITY[i]+' '+p/100+'%').join(' · ')}</p>`:''}${!state.firsts.includes(task.id)?`<h3>首次完成奖励</h3><p>${task.kind==='idle'?`金币 ${num(r.historicalUnitBonusGold||0)} · 招募点 ${num(r.historicalUnitBonusRecruitPoints||0)}`:'招募点 100'}${r.historicalGuaranteedCharacter?` · ${esc(r.historicalGuaranteedCharacter)}`:''}${r.historicalSelectableEquipment?' · 行旅绿色装备自选':''}</p>`:''}<p class="muted">本轮回溯贡献：${state.runClears.includes(task.id)?'已计入':num(task.rebirthContributionSubunits/240)+'点'}。</p>`;}
+function taskDetails(task){const r=task.rewards;return `${rewardTags(task)}<h3>敌方情报</h3><p>三波 · ${taskTime(task)} · ${task.environmentKind?'总余势 '+num(task.totalEnvironmentEnergy):'总生命 '+num(task.totalBaseHp)}</p>${task.environmentKind?'<p>不可攻击；每次攻击完成后余势减少100，全部耗尽且仍有队员存活即通过。</p>':''}${task.waves.map(w=>`<h3>第${w.index}波</h3><div class="enemy-preview">${w.enemies.map(e=>`<span><strong>${esc(e.name)}</strong><small>${e.type==='environment'?'环境 · 余势'+num(e.hp):e.type==='boss'?'首领 · 2×2':e.type==='elite'?'精英 · 2×1':'普通 · 1×1'}</small><small>攻击 ${num(e.atk)}</small></span>`).join('')}</div>`).join('')}${task.kind==='rogue'?`<h3>收容机制</h3><p>${mechanicText(task)}</p><p>本轮限领一次。</p>`:''}${task.kind==='gear'?`<h3>装备掉落</h3><p>≤90秒共2件随机装备；≤150秒普通通关金币翻倍，两项可叠加。历史首通自选另计。</p><p>${series(r.tier)}系列${r.nextTierChanceBp?`，有${r.nextTierChanceBp/100}%概率提升为${series(r.tier+1)}系列`:''}</p><p>${r.qualityChanceBp.map((p,i)=>QUALITY[i]+' '+p/100+'%').join(' · ')}</p>`:''}${!state.firsts.includes(task.id)?`<h3>首次完成奖励</h3><p>${task.kind==='idle'?`金币 ${num(r.historicalUnitBonusGold||0)} · 招募点 ${num(r.historicalUnitBonusRecruitPoints||0)}`:'招募点 100'}${r.historicalGuaranteedCharacter?` · ${esc(r.historicalGuaranteedCharacter)}`:''}${r.historicalSelectableEquipment?' · 行旅绿色装备自选':''}</p>`:''}<p class="muted">${state.rebirthIncome?.mode==='legacy'?'本轮原规则贡献：'+(state.runClears.includes(task.id)?'已计入':num(task.rebirthContributionSubunits/240)+'点'):'通关金币参与回溯折算；历史突破奖励仅计一次。'}</p>`;}
 function modalContent(){
   const {type,data:d}=sheet;let title='',body='',actions=button('完成','close');
   switch(type){
@@ -240,7 +239,7 @@ function modalContent(){
     case 'about': title='版本信息';body=`<p>三波行动 v0.3</p><dl class="stats-list"><div><dt>规则版本</dt><dd>${RULE_VERSION}</dd></div><div><dt>档案版本</dt><dd>${SCHEMA}</dd></div><div><dt>数值版本</dt><dd>${DATA.balanceRevision}</dd></div></dl>`;break;
     case 'taskDetails': title=currentTask().name;body=taskDetails(currentTask());break;
     case 'taskCatalog': title=ui.kind==='gear'?'装备任务目录':'收容任务目录';body=`<div class="task-catalog">${CATALOG[ui.kind].map(t=>button(`<span><strong>${esc(t.name)}</strong><small>${taskStatus(t)}${!unlocked(t)?' · 先完成'+esc(TASKS[t.unlock].name):''}</small></span>${t.id===ui.taskId?'✓':'›'}`,'catalogTask',`data-task="${t.id}"`,false,t.id===ui.taskId?'selected':'')).join('')}</div>`;break;
-    case 'agent': {const h=heroDefinition(state,d.hero),record=state.heroes[h.id],cost=[20,40,80,120][record.star-1];title=h.name;body=`<img class="portrait-large" src="${art(h.id)}" alt="${h.name}"><p class="stars">${record.owned?stars(h.id):'未招募'} · ${record.shards}枚碎片</p>${statsList(heroStats(state,h.id))}${h.formName?`<p class="form-info">当前：${esc(h.formName)} · 战前换装切换，三波内锁定</p>`:""}<h3>${h.active.name}<small>主动 · ${h.active.cooldownSeconds}秒</small></h3>${skillCopy(h)}<h3>${h.passive.name}<small>被动</small></h3>${skillCopy(h,true)}<p class="muted">主手：${h.weapons.main.join(' / ')}<br>副手：${h.weapons.off.join(' / ')||'不可装备'}。${h.forms?"合法主手决定技能形态；空主手采用防御形态。":"技能不要求持有指定武器。"}</p>`;actions=button(record.star===5?'已满五星':`升星 · ${cost}碎片`,'star',`data-hero="${h.id}"`,!record.owned||record.star===5||record.shards<cost)+button('装备整备','heroGear',`data-hero="${h.id}"`,!record.owned,'primary');break;}
+    case 'agent': {const h=heroDefinition(state,d.hero),record=state.heroes[h.id],cost=[20,40,80,120][record.star-1];title=h.name;body=`<img class="portrait-large" src="${art(h.id)}" alt="${h.name}"><p class="stars">${record.owned?stars(h.id):'未招募'} · ${record.shards}枚碎片</p>${statsList(heroStats(state,h.id))}${h.formName?`<p class="form-info">当前：${esc(h.formName)} · 战前换装切换，三波内锁定</p>`:""}<h3>${h.active.name}<small>主动 · ${h.active.cooldownSeconds}秒</small></h3>${skillCopy(h)}<h3>${h.passive.name}<small>被动</small></h3>${skillCopy(h,true)}<p class="muted">主手：${h.weapons.main.join(' / ')}<br>副手：${h.weapons.off.join(' / ')||'不可装备'}。${h.forms?"合法主手决定技能形态；空主手采用防御形态。":"技能不要求持有指定武器。"}</p>`;actions=button('突破','openBreakthrough',`data-hero="${h.id}"`,!record.owned)+button(record.star===5?'已满五星':`升星 · ${cost}碎片`,'star',`data-hero="${h.id}"`,!record.owned||record.star===5||record.shards<cost)+button('装备整备','heroGear',`data-hero="${h.id}"`,!record.owned,'primary');break;}
     case 'heroPicker': title='选择整备特工';body=`<div class="picker-list">${ownedHeroes().map(h=>button(`<img src="${art(h.id,true)}" alt=""><span>${h.name}<small>${stars(h.id)}</small></span>${ui.selectedHero===h.id?'✓':'›'}`,'pickHero',`data-hero="${h.id}"`)).join('')}</div>`;break;
     case 'formationSlot': title=`${d.slot<3?'前排':'后排'} ${d.slot%3+1} · 选择特工`;body=`<div class="picker-list">${ownedHeroes().map(h=>{const position=formationDraft.indexOf(h.id);return button(`<img src="${art(h.id,true)}" alt=""><span>${h.name}<small>${position<0?'未上阵':`${position<3?'前排':'后排'} ${position%3+1} · ${position===d.slot?'当前位置':'交换'}`}</small></span>${position===d.slot?'✓':'›'}`,'placeHero',`data-hero="${h.id}" data-slot="${d.slot}"`);}).join('')}</div>`;actions=button('取消','close')+button('移除','placeHero',`data-hero="" data-slot="${d.slot}"`,!formationDraft[d.slot],'danger');break;
     case 'discardFormation': title='阵容尚未保存';body='<p>离开将放弃未保存的调整。</p>';actions=button('继续编辑','close')+button('放弃并离开','discardFormation','',false,'danger');break;
@@ -278,7 +277,13 @@ function modalContent(){
     case 'salvageQuality': title='按稀有度全部分解';body='<p>包含全背包所有分页，排除已穿戴和锁定装备。</p><div class="menu-list">'+QUALITY.map((q,index)=>{const list=state.items.filter(i=>i.quality===index&&!i.locked&&!equipped(i.id)),coins=list.reduce((n,i)=>n+salvageValue(i,state),0n);return button(q+' · '+list.length+'件 <small>返还 '+formatInteger(coins)+'金币</small>','chooseSalvageQuality','data-quality="'+index+'"',!list.length,'q'+index);}).join('')+'</div>';break;
     case 'buffArchive': title='本轮强化';body=`<div class="buff-archive">${state.buffs.map(id=>`<article><h3>${BUFF_BY_ID[id].name}${state.enhancedBuff===id?' · 已精修':''}</h3><div class="effect-copy">${ownedBuffText(id)}</div></article>`).join('')||'<p>还没有获得本轮强化。</p>'}</div>`;break;
     case 'enhance': title='选择精修目标';body=`<div class="menu-list">${DATA.rogueEnhanceWhitelist.filter(w=>state.buffs.includes(w.choice_id)).map(w=>button(`<strong>${BUFF_BY_ID[w.choice_id].name}</strong><small>${esc(buffDisplay(w.choice_id).summary)} → ${esc(buffDisplay(w.choice_id,true).summary)}</small>`,'enhanceTarget',`data-target="${w.choice_id}"`,false,d.target===w.choice_id?'selected':'')).join('')}</div>`;actions=button('返回','close')+button('确认精修','confirmEnhance','',!d.target,'primary');break;
-    case 'rebirthConfirm': {const {plan}=rebirthPlan();title='确认时间回溯';body=`<p>本轮获得${formatInteger(rebirthPreview(state).points)}回溯点；下轮分配${formatInteger(plan.spent)}点，剩余${formatInteger(plan.remaining)}点。</p>${resetDetails()}<h3>下一轮加点</h3><ul>${TALENTS.filter(t=>BigInt(allocation[t.id]||0)>0n).map(t=>`<li>${t.name} · ${allocation[t.id]}级</li>`).join('')||'<li>暂不加点，保留全部回溯点。</li>'}</ul>`;actions=button('继续调整','close')+button('开始下一轮','confirmRebirth','',false,'primary');break;}
+    case 'rebirthConfirm': {const {plan,error}=planPreview(state,client.now());title='确认回溯';body=error?'<p>'+esc(error)+'</p>':`<p>本次获得 ${formatInteger(d.expectedPoints)} 点；回溯后可用 ${formatInteger(plan.remaining)} 点。</p><p>${state.rebirthPlan?'应用已保存的下轮方案。':'沿用当前等级与投入，新增点数留作余额。'}</p>${resetDetails()}`;actions=button('取消','close')+button('开始下一轮','confirmRebirth','',!!error,'primary');break;}
+    case 'planEditor': return allocationEditor(state,client.now(),d.allocation,d.group,button);
+    case 'growthIncome': title='回溯收益明细';body=incomeDetails(state,client.now());break;
+    case 'growthReset': title='保留与重置';body=resetDetails();break;
+    case 'breakthroughPicker': title='选择突破特工';body=`<div class="picker-list">${ownedHeroes().map(h=>button(`<img src="${art(h.id,true)}" alt=""><span>${h.name}<small>${stars(h.id)}</small></span>›`,'pickBreakthrough',`data-hero="${h.id}"`)).join('')}</div>`;break;
+    case 'breakthroughConfirm': title='永久突破';body=`<p><strong>${HERO_BY_ID[d.hero].name}</strong> · ${phaseNames[d.phase]} ${d.expectedLevel} → ${d.nextLevel}级</p>${changesMarkup(d.changes)}<p>消耗 ${formatInteger(d.expectedCost)} 回溯点</p><p class="warning-text">永久投入，不可返还</p>`;actions=button('取消','close')+button('确认投入','buyBreakthrough','',!!state.challenge,'primary');break;
+
     case 'pendingGear': title='领取自选装备';body=state.pendingEquipment.map(p=>`<h3>${esc(TASKS[p.taskId].name)} · ${p.group}</h3><div class="menu-list">${TEMPLATES.filter(t=>templateAvailable(t)&&t.tier===p.tier&&t.group===({武器:'weapon',防具:'armor',首饰:'jewelry'}[p.group])).map(t=>button(`${esc(t.name)} · 绿色`,'selectEquipment',`data-task="${p.taskId}" data-template="${t.id}"`)).join('')}</div>`).join('')||'<p>奖励已领取完毕。</p>';break;
     case 'battleUnit': {const meta=battle?.units[d.unit],unit=battle?.currentFrame?.find(u=>u.id===d.unit);title=meta?.name||'单位详情';body=meta?`<p>${meta.kind==='environment'?'余势':'生命'} ${num(unit?.hp??meta.maxHp)} / ${num(meta.maxHp)}${meta.kind==='environment'?' · 剩余'+Math.ceil((unit?.hp??meta.maxHp)/100)+'次攻击':' · 护盾 '+num(unit?.shield||0)}</p>${meta.kind==='environment'?`<p>不可攻击 · 每次攻击后余势 −100</p><p>每${meta.environment.interval}秒攻击${{front:'前排目标',rotate2:'轮换两名队员',all:'全队'}[meta.environment.targetMode]}；护盾完全吸收或无敌时也会衰减。</p>`:''}${statsList(meta)}${unit?battleStateText(meta,unit):""}<p>${unit?.immune?'无敌中 · ':''}${unit?.interfered?'技能受到干扰 · ':''}${unit?.debt?'剩余醉伤 '+num(unit.debt):''}</p>${battleAbilities(meta)}`:'<p>战斗已结束。</p>';break;}
     case 'battleDisplay': title='战斗显示';body='<div class="menu-list">'+[['system','跟随系统'],['full','完整动效'],['reduced','减少动态效果']].map(([value,label])=>button(label,'battleMotion','data-motion="'+value+'" aria-pressed="'+(motionPreference()===value)+'"',false,motionPreference()===value?'selected':'')).join('')+'</div>';break;
@@ -294,6 +299,8 @@ function renderSheet(){
   const {title,body,actions}=modalContent(),position=scrollPositions.get(sheetKey())||0;
   modal.setAttribute('aria-labelledby','sheet-title');modal.innerHTML=`<header class="sheet-head"><h2 id="sheet-title">${esc(title)}</h2>${button('×','close','aria-label="关闭"',false,'icon-button')}</header><div class="sheet-body">${body}<p class="sheet-error" role="alert" hidden></p></div><footer class="sheet-footer">${client.pending?`<div class="retry-row"><span>保存未确认</span>${button('重试同步','retry')}</div>`:''}<div class="actions">${actions}</div></footer>`;
   if(sheet.type==='reveal'&&HERO_BY_ID[sheet.data.hero])revealSound(HERO_BY_ID[sheet.data.hero],sheet.data.receiptId+':'+sheet.data.index);
+  modal.classList.toggle('growth-dialog',['planEditor','rebirthConfirm','breakthroughConfirm','breakthroughPicker','growthIncome','growthReset'].includes(sheet.type));
+  modal.classList.toggle('growth-editor-dialog',sheet.type==='planEditor');
   modal.classList.toggle('reveal-dialog',sheet.type==='reveal');if(!modal.open)modal.showModal();modal.querySelector('.sheet-body').scrollTop=position;
 }
 
@@ -316,7 +323,8 @@ function battleStateText(meta,unit){
   return entries.length?'<p class="battle-status-details">'+entries.map(esc).join('<br>')+'</p>':'';
 }
 function battleAbilities(meta){
-  const original=HERO_BY_ID[meta.id],hero=original?.forms?{...original,...original.forms[meta.form||'defense'],id:original.id,form:meta.form||'defense'}:original;
+  const base=HERO_BY_ID[meta.id],captured=battle?.challenge.heroes.find(h=>h.id===meta.id),original=base?{...base,...captured?.skillSnapshot}:null;
+  const form=captured?.form||meta.form||'defense',hero=original?.forms?{...original,...original.forms[form],id:original.id,form}:original;
   if(hero)return '<h3>'+esc(hero.active.name)+'</h3>'+skillCopy(hero)+'<h3>'+esc(hero.passive.name)+' · 被动</h3>'+skillCopy(hero,true);
   if(meta.kind==='environment')return '';
   const task=currentTask(),spec=task.waves.flatMap(w=>w.enemies).find(u=>u.id===meta.id)||task.summonTemplate;
@@ -435,7 +443,7 @@ function bindInputs(){
   bind('planet','change',e=>updateUI({taskId:CATALOG.idle.find(t=>t.planet===e.target.value).id}));
   bind('resource','change',e=>updateUI({taskId:CATALOG.idle.find(t=>t.unit===Number(e.target.value)&&t.step===1).id}));
   bind('quality','change',e=>updateUI({quality:e.target.value,page:0}));bind('item-search','input',e=>updateUI({query:e.target.value,page:0}));
-  bind('focus','change',e=>{focus=e.target.value;});
+
   root.querySelectorAll('[data-mark]').forEach(el=>el.addEventListener('change',()=>{el.checked?marked.add(el.dataset.mark):marked.delete(el.dataset.mark);rememberScroll();render();}));
 }
 async function handle(action,el){
@@ -444,10 +452,10 @@ async function handle(action,el){
   if(action==='idleGearBag'){closeSheet(()=>navigate('gear',{gearTab:'bag',quality:'all',gearFilterSlot:null,query:'',page:0}));return;}
   if(action==='retry'){const pending=client.pending;if(pending)await mutate(pending.action,true);else await connect(client.mode);return;}
   if(action==='nav'){navigate(d.view);return;}
-  if(action==='back'){if(sheet)closeSheet();else if(ui.view==='home')return;else if(battle)openSheet('retreat',{next:'tasks'});else navigate(ui.view==='formation'?'heroes':'home');return;}
+  if(action==='back'){if(sheet)closeSheet();else if(ui.view==='home')return;else if(battle)openSheet('retreat',{next:'tasks'});else navigate(['formation','breakthrough'].includes(ui.view)?'heroes':'home');return;}
   if(action==='export'){download(state);toast('存档已导出');return;}
   if(action==='reload'){if(client?.pending){await handle('retry',el);return;}if(battle||draftDirty()){toast('请先结束战斗或保存阵容');return;}sheet=null;stamp();await connect(client?.mode||selectedMode());return;}
-  if(action==='logout'){if(battle||draftDirty()){toast('请先结束战斗或保存阵容');return;}await signOut();state=null;ui={...defaults};formationDraft=null;allocation=null;marked.clear();saveUI();history.replaceState(null,'','#home');welcome();return;}
+  if(action==='logout'){if(battle||draftDirty()){toast('请先结束战斗或保存阵容');return;}await signOut();state=null;ui={...defaults};formationDraft=null;marked.clear();saveUI();history.replaceState(null,'','#home');welcome();return;}
   if(['more','help','about','taskDetails','taskCatalog','heroPicker','chooseUpgrade','probabilities','exchangeHelp','buffArchive','pendingGear','battleLog','agentArchive','battleDisplay','weaponChanges'].includes(action)){openSheet(action);return;}
   if(action==='hero'){if(own(d.hero)||sheet?.type==='probabilities')openSheet('agent',{hero:d.hero});else openSheet('agentArchive');return;}
   if(action==='advanceReveal'){advanceReveal();return;}
@@ -497,10 +505,20 @@ async function handle(action,el){
   if(action==='resultNext'){closeSheet(()=>updateUI({taskId:d.task,kind:TASKS[d.task].kind}));return;}
   if(action==='selectBuff'){updateUI({selectedBuff:d.buff});return;}
   if(action==='enhanceTarget'){rememberScroll();sheet.data.target=d.target;stamp();renderSheet();return;}
-  if(action==='rebirthTab'){updateUI({rebirthTab:d.tab});return;}
-  if(action==='talent'){allocation[d.id]=(BigInt(allocation[d.id]||0)+BigInt(d.delta)).toString();rememberScroll();render();return;}
-  if(action==='resetPlan'){allocation={};rememberScroll();render();return;}
-  if(action==='rebirth'){openSheet('rebirthConfirm');return;}
+  if(action==='openBreakthrough'){const id=d.hero||ui.selectedHero;if(sheet)closeSheet(()=>navigate('breakthrough',{selectedHero:id,breakthroughPhase:'attribute_2',breakthroughCount:1}));else navigate('breakthrough',{selectedHero:id,breakthroughPhase:'attribute_2',breakthroughCount:1});return;}
+  if(action==='breakthroughPicker'){openSheet('breakthroughPicker');return;}
+  if(action==='pickBreakthrough'){closeSheet(()=>updateUI({selectedHero:d.hero,breakthroughPhase:'attribute_2',breakthroughCount:1}));return;}
+  if(action==='breakthroughPhase'){updateUI({breakthroughPhase:d.phase,breakthroughCount:1});return;}
+  if(action==='breakthroughCount'){updateUI({breakthroughCount:d.count==='max'?'max':1});return;}
+  if(action==='confirmBreakthrough'){const p=breakthroughPreview(state,ui.selectedHero,ui.breakthroughPhase,ui.breakthroughCount);if(!p.canBuy){toast(p.reason);return;}openSheet('breakthroughConfirm',{hero:ui.selectedHero,phase:p.phase,count:p.count,expectedLevel:p.level,expectedCost:p.cost,nextLevel:p.nextLevel,changes:breakthroughChanges(state,ui.selectedHero,p.phase,p.count)});return;}
+  if(action==='editPlan'){openSheet('planEditor',{allocation:structuredClone(state.rebirthPlan?.allocation||Object.fromEntries(Object.entries(state.talents).map(([id,t])=>[id,t.level]))),group:'战斗'});return;}
+  if(action==='planGroup'){sheet.data.group=d.group;stamp();renderSheet();return;}
+  if(action==='restorePlan'){await mutate({type:'saveRebirthPlan',allocation:null});return;}
+  if(action==='savePlan'){await mutate({type:'saveRebirthPlan',allocation:sheet.data.allocation});return;}
+  if(['growthIncome','growthReset'].includes(action)){openSheet(action);return;}
+  if(action==='talent'){sheet.data.allocation[d.id]=(BigInt(sheet.data.allocation[d.id]||0)+BigInt(d.delta)).toString();rememberScroll();stamp();renderSheet();document.getElementById(el.id)?.focus({preventScroll:true});return;}
+  if(action==='resetPlan'){sheet.data.allocation={};rememberScroll();stamp();renderSheet();return;}
+  if(action==='rebirth'){if(client.pending){toast('请先重试同步');return;}busy=true;render();try{state=(await client.load()).state;}finally{busy=false;render();}const p=rebirthPreview(state,client.now()),{plan,error}=planPreview(state,client.now());if(!p.eligible||error){toast(error||'请先满足回溯条件');return;}openSheet('rebirthConfirm',{expectedPoints:p.points,expectedSpent:plan.spent});return;}
   if(action==='battleMotion'){localStorage.setItem('ax-battle-motion',d.motion);updateBattleMotion();renderSheet();return;}
   if(action==='cycleSpeed'){
     preferredBattleSpeed=battle.speed=battle.speed===4?1:battle.speed*2;
@@ -515,7 +533,8 @@ async function handle(action,el){
   if(action==='formation')payload.formation=[...formationDraft];
   if(action==='confirmBuff'){if(BUFF_BY_ID[ui.selectedBuff].effect_type==='enhance_owned'){openSheet('enhance');return;}Object.assign(payload,{type:'buff',buff:ui.selectedBuff});}
   if(action==='confirmEnhance')Object.assign(payload,{type:'buff',buff:ui.selectedBuff,target:sheet.data.target});
-  if(action==='confirmRebirth')Object.assign(payload,{type:'rebirth',allocation,focus});
+  if(action==='confirmRebirth')Object.assign(payload,{type:'rebirth',expectedPoints:sheet.data.expectedPoints,expectedSpent:sheet.data.expectedSpent});
+  if(action==='buyBreakthrough')Object.assign(payload,{type:'breakthrough',hero:sheet.data.hero,phase:sheet.data.phase,count:sheet.data.count,expectedLevel:sheet.data.expectedLevel,expectedCost:sheet.data.expectedCost});
   if(action==='confirmSalvage')Object.assign(payload,{type:'salvage',items:sheet.data.items,quality:sheet.data.quality,expectedCoins:sheet.data.expectedCoins});
   if(action==='confirmRetreat'){saveBattleReport('retreat');Object.assign(payload,{type:'abandon',challengeId:battle?.challenge.id});}
   if(action==='equipBest')payload.hero=ui.selectedHero;

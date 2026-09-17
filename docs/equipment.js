@@ -37,12 +37,12 @@ export function salvageValue(item,s) {
   const g=BigInt(t.tier-1);
   return BigInt(item.invested)+base*13n**g*(100n+bonus)/(10n**g*100n);
 }
-export function rollEquipment(task,s,rng=random) {
+export function rollEquipment(task,s,rng=random,{legacyFocus=false}={}) {
   const r=task.rewards; const tier=r.tier+(rng()<r.nextTierChanceBp/10000?1:0);
   let quality=weighted(r.qualityChanceBp,rng);
   if(quality<4 && r.qualityChanceBp[quality+1]>0 && rng()<talentBonus(s,'one_step_quality_promotion_chance')) quality++;
   const weights=r.groupChanceBp.map(n=>n/10000),focus={main_hand:0,armor_and_offhand:1,jewelry:2}[s.focus];
-  const extra=talentBonus(s,'target_equipment_group_add_pp_fraction');
+  const extra=legacyFocus?Number(s.talents?.P11?.level||0)*.01:0;
   if(focus!==undefined&&extra>0) { const old=weights[focus],added=Math.min(extra,1-old); for(let i=0;i<3;i++)weights[i]=i===focus?old+added:weights[i]*(1-old-added)/(1-old); }
   const group=['weapon','armor','jewelry'][weighted(weights,rng)];
   const pool=TEMPLATES.filter(t=>t.tier===tier&&t.group===group&&templateAvailable(t));

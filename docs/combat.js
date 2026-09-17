@@ -33,7 +33,7 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
     if(definition.forms){h.form??='defense';requireRule(definition.forms[h.form],'战士形态无效');}
     h.baseAttack=h.atk;h.warIntent=0;h.cleaveCharges=0;h.key=null;h.kkt=0;
   }
-  const skills=u=>{const h=HERO_BY_ID[u.id];return h.forms?h.forms[u.form]:h;};
+  const skills=u=>{const h=u.skillSnapshot||HERO_BY_ID[u.id];return h.forms?h.forms[u.form]:h;};
   const waves=task.waves;requireRule(Array.isArray(waves)&&waves.length>0,'副本波次数据不可用');
   let enemies=[],boss=null,mechanic=null,waveIndex=-1,waveStartedAt=0,waveToken=0,completedWaves=0;
   const units=()=>[...heroes,...enemies],localTime=()=>time-waveStartedAt;
@@ -49,7 +49,7 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
       const value=h.hp>0?Math.max(0,...heroes.filter(other=>other!==h&&other.hp>0&&HERO_BY_ID[other.id].passive.kind==='living_source_other_ally_atk_aura').map(other=>HERO_BY_ID[other.id].passive.atkPct)):0;
       if(h.kkt===value)continue;h.kkt=value;
       const base=h.attackBase??h.baseAttack,percent=h.attackBonus||0;
-      h.atk=value?Math.round(base*(1+percent+value)):h.baseAttack;
+      h.atk=value?Math.round(base*(1+percent+value)*(h.breakthroughStatMultiplier||1)):h.baseAttack;
       requireRule(Number.isFinite(h.atk),'战斗属性超出可计算范围，请保留档案并反馈');
       emit('aura',{source:'kuodaya',target:h.id,name:'KKT',bonus:value,atk:h.atk});
     }

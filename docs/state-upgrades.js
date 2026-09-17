@@ -1,10 +1,13 @@
 import {SCHEMA,HEROES,TEMPLATE_BY_ID,RULE_VERSION,DATA} from './catalog.js';
 import {canEquip} from './equipment.js';
 import {WEAPON_REVISION} from './equipment-expansion.js';
-import {clone} from './primitives.js';
-import {initIdleGear} from './idle-equipment.js';
-export function needsStateUpgrade(s){return s.schema===SCHEMA&&(s.rule!==RULE_VERSION||!s.migrations?.[WEAPON_REVISION]||!s.idleGear||HEROES.some(h=>!s.heroes[h.id]||!s.equipment[h.id]));}
-export function upgradeState(old,now=Date.now()){
+import {clone,random,natural} from './primitives.js';
+import {initIdleGear,settleIdleGear} from './idle-equipment.js';
+import {GROWTH_REVISION,RETIRED_TALENTS} from './growth-rules.js';
+import {initGrowthIncome} from './rewind-growth.js';
+import {breakthroughRecord} from './hero-breakthrough.js';
+export function needsStateUpgrade(s){return s.schema===SCHEMA&&(s.rule!==RULE_VERSION||!s.migrations?.[WEAPON_REVISION]||!s.migrations?.[GROWTH_REVISION]||!s.idleGear||HEROES.some(h=>!s.heroes[h.id]||!s.equipment[h.id]||!s.heroes[h.id].breakthrough));}
+export function upgradeState(old,now=Date.now(),rng=random){
   const s=clone(old);if(s.schema!==SCHEMA)return s;
   for(const h of HEROES){s.heroes[h.id]??={owned:false,star:1,shards:0};s.equipment[h.id]??=Array(15).fill(null);}
   s.migrations??={};
@@ -20,5 +23,18 @@ export function upgradeState(old,now=Date.now()){
     if(s.challenge&&(s.challenge.rule!==RULE_VERSION||s.challenge.balanceRevision!==DATA.balanceRevision)){report.push({challenge:s.challenge.id,reason:'旧规则挑战已封存，请重新挑战'});s.challenge=null;}
     s.migrations[WEAPON_REVISION]={at:now,snapshot,report};
   }
-  initIdleGear(s,now);s.rule=RULE_VERSION;return s;
+  initIdleGear(s,now);
+  if(!s.migrations[GROWTH_REVISION]){
+    // Finish pre-cutover idle equipment with its former P11 preference before
+    // retiring it. The caller persists this together with refunds under CAS.
+    settleIdleGear(s,now,rng,{legacyFocus:true});
+    const refunded={};let total=0n;
+    for(const id of RETIRED_TALENTS){if(s.talents[id]){const paid=natural(s.talents[id].paid);refunded[id]=clone(s.talents[id]);total+=paid;delete s.talents[id];}}
+    s.points=(natural(s.points)+total).toString();
+    const oldFocus=s.focus;delete s.focus;
+    initGrowthIncome(s,{legacy:true,sourceRule:old.rule});s.rebirthPlan=null;
+    s.migrations[GROWTH_REVISION]={at:now,sourceRule:old.rule,refunded,refundedPoints:total.toString(),...(oldFocus?{oldFocus}:{}),incomeMode:s.rebirthIncome.mode};
+  }
+  for(const h of HEROES)s.heroes[h.id].breakthrough=breakthroughRecord(s,h.id);
+  s.rule=RULE_VERSION;return s;
 }
