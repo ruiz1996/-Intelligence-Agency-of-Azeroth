@@ -162,6 +162,15 @@
     "status": "user-selected-art"
   },
   {
+    "id": "juwoyaer",
+    "name": "居沃亚尔",
+    "sourceFile": "居沃亚尔/居沃亚尔_用户指定原图_2026-09-22.jpg",
+    "sourceSha256": "812f37dfae7df404f5e4d6742a65ed816545c3d0f6a6af161386f56613b17692",
+    "width": 1024,
+    "height": 1536,
+    "status": "user-selected-art"
+  },
+  {
     "id": "jinnailuo",
     "name": "紧奈洛丶",
     "status": "placeholder",
@@ -170,12 +179,6 @@
   {
     "id": "dunjigaoshou",
     "name": "炖鸡高手",
-    "status": "placeholder",
-    "label": "立绘待补充"
-  },
-  {
-    "id": "juwoyaer",
-    "name": "居沃亚尔",
     "status": "placeholder",
     "label": "立绘待补充"
   }

@@ -3,7 +3,7 @@ import { DATA, HERO_BY_ID, AFFIX_NAMES, TEMPLATE_BY_ID, baseItemStats } from './
 export const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const num = value => Number(value).toLocaleString('zh-CN', {maximumFractionDigits:1});
 export const percent = value => Number(value*100).toLocaleString('zh-CN',{maximumFractionDigits:4}) + '%';
-export const art = (id, small = false) => `./art/${id}${['jinnailuo','dunjigaoshou','juwoyaer'].includes(id)?'.svg':(small?'-battle':'')+'.webp'}?v=20260922`;
+export const art = (id, small = false) => `./art/${id}${['jinnailuo','dunjigaoshou'].includes(id)?'.svg':(small?'-battle':'')+'.webp'}?v=20260922`;
 export const series = tier => DATA.equipment.tiers[tier - 1]?.name || '旧藏';
 export const itemName = item => item.legacyName || TEMPLATE_BY_ID[item.templateId].name;
 export const itemStatsText = item => Object.entries(baseItemStats(item)).filter(([,v]) => v).map(([key,value]) => `${AFFIX_NAMES[key]} ${num(value)}`).join(' · ');
