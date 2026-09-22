@@ -1,3 +1,5 @@
+import {RETIRED_HERO_IDS,ROSTER_REVISION} from './six-heroes.js';
+import {credit} from './primitives.js';
 import {SCHEMA,HEROES,TEMPLATE_BY_ID,RULE_VERSION,DATA} from './catalog.js';
 import {canEquip} from './equipment.js';
 import {WEAPON_REVISION} from './equipment-expansion.js';
@@ -6,11 +8,18 @@ import {initIdleGear,settleIdleGear} from './idle-equipment.js';
 import {GROWTH_REVISION,RETIRED_TALENTS} from './growth-rules.js';
 import {initGrowthIncome} from './rewind-growth.js';
 import {breakthroughRecord} from './hero-breakthrough.js';
-export function needsStateUpgrade(s){return s.schema===SCHEMA&&(s.rule!==RULE_VERSION||!s.migrations?.[WEAPON_REVISION]||!s.migrations?.[GROWTH_REVISION]||!s.idleGear||HEROES.some(h=>!s.heroes[h.id]||!s.equipment[h.id]||!s.heroes[h.id].breakthrough));}
+export function needsStateUpgrade(s){return s.schema===SCHEMA&&(s.rule!==RULE_VERSION||!s.migrations?.[ROSTER_REVISION]||!s.migrations?.[WEAPON_REVISION]||!s.migrations?.[GROWTH_REVISION]||!s.idleGear||HEROES.some(h=>!s.heroes[h.id]||!s.equipment[h.id]||!s.heroes[h.id].breakthrough));}
 export function upgradeState(old,now=Date.now(),rng=random){
   const s=clone(old);if(s.schema!==SCHEMA)return s;
   for(const h of HEROES){s.heroes[h.id]??={owned:false,star:1,shards:0};s.equipment[h.id]??=Array(15).fill(null);}
   s.migrations??={};
+  if(!s.migrations[ROSTER_REVISION]){
+    const report=[];let recruit=0,points=0n;
+    for(const id of RETIRED_HERO_IDS){const h=s.heroes[id];if(h){const shards=(h.shards||0)+(h.owned?([0,0,20,60,140,260][h.star]||0):0),paid=natural(h.breakthrough?.permanentSpent||0);recruit+=(h.owned?100:0)+shards*10;points+=paid;report.push({id,hero:clone(h),equipment:clone(s.equipment[id]||[])});}delete s.heroes[id];delete s.equipment[id];}
+    credit(s,'recruit',recruit);s.points=(natural(s.points)+points).toString();s.formation=s.formation.map(id=>RETIRED_HERO_IDS.includes(id)?null:id);
+    const obsoleteChallenge=s.challenge?clone(s.challenge):null;s.challenge=null;s.migrations[ROSTER_REVISION]={at:now,sourceRule:old.rule,obsoleteChallenge,recruit,points:points.toString(),report};
+    s.history??=[];s.history.unshift({at:now,text:'基础特工退役：返还 '+recruit+' 招募点、'+points+' 回溯点，原装备已卸下保留。'});
+  }
   if(!s.migrations[WEAPON_REVISION]){
     const report=[],snapshot=clone(old),seen=new Set(),byId=new Map(s.items.map(i=>[i.id,i]));
     for(const h of HEROES)for(let slot=0;slot<15;slot++){

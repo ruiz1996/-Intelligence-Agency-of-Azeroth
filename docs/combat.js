@@ -40,7 +40,7 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
   const attackTargets=()=>alive(enemies).filter(e=>e.targetable!==false&&e.attackable!==false);
   const scheduleWave=(at,priority,fn)=>{const token=waveToken;schedule(at,priority,()=>{if(token===waveToken)fn();});};
   const totalShield=u=>u.shields.reduce((n,s)=>n+s.amount,0);
-  const snapshot=()=>units().map(u=>({id:u.id,hp:Math.max(0,u.hp),shield:totalShield(u),immune:u.immuneUntil>time,interfered:u.side==='hero'&&interferenceUntil>time,debt:u.debt.reduce((n,b)=>n+b.amount,0),ready:u.cdRemaining<=EPS,...(u.side==='hero'?{atk:u.atk,dotStacks:u.dotStacks,actionBuffCount:u.actionBuffCount,focusCount:u.focusCount,focusTarget:u.focusTarget,form:u.form,warIntent:u.warIntent,cleaveCharges:u.cleaveCharges,linkUsed:!!u.flags.soulLink,keyUntil:u.key?.until||0,kkt:u.kkt}:{} )}));
+  const snapshot=()=>units().map(u=>({id:u.id,hp:Math.max(0,u.hp),shield:totalShield(u),chillUntil:u.chillUntil||0,souls:u.souls||0,verdictCharges:u.verdict?.left||0,verdictPool:u.verdict?.pool||0,bladeReady:!!u.bladeReady,immune:u.immuneUntil>time,interfered:u.side==='hero'&&interferenceUntil>time,debt:u.debt.reduce((n,b)=>n+b.amount,0),ready:u.cdRemaining<=EPS,...(u.side==='hero'?{atk:u.atk,dotStacks:u.dotStacks,actionBuffCount:u.actionBuffCount,focusCount:u.focusCount,focusTarget:u.focusTarget,form:u.form,warIntent:u.warIntent,cleaveCharges:u.cleaveCharges,linkUsed:!!u.flags.soulLink,keyUntil:u.key?.until||0,kkt:u.kkt}:{} )}));
   const primarySupport=(kind,target)=>1+(bonus[kind+'_pct']||0)+param('support',kind+'_pct')+(target.row===0?param('position_support',kind+'_pct'):0);
   const keyBonus=(caster,kind)=>caster?.hp>0&&caster.key?.until>time?caster.key[kind+'Bonus']||0:0;
   const nativeSupport=(kind,target,caster)=>primarySupport(kind,target)+keyBonus(caster,kind);
@@ -101,7 +101,7 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
     const basic=tag==='basic',active=tag==='active'||tag==='periodic';let n=keyBonus(u,'damage');
     if(basic)n+=(bonus.basic_damage_pct||0)+param('damage','basic_pct');
     if(active)n+=(bonus.active_damage_pct||0)+param('damage','active_pct');
-    const general=basic||active||tag==='passive'&&u.id==='hasika';
+    const general=basic||active||tag==='passive'&&['hasika','jinnailuo','juwoyaer'].includes(u.id);
     if(general)for(const b of effect('conditional_damage'))if(u.hp/u.maxHp<b.parameters.threshold)n+=b.parameters.damage_pct;
     if(general){n+=Math.min(u.actions,param('action_ramp','max_stacks'))*param('action_ramp','per_stack');if(u.row===1)n+=param('position_damage','damage_pct');}
     if((basic||tag==='active')&&u.actionBuffCount>0)n+=u.actionBuff;
@@ -129,10 +129,10 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
     }
     return Math.min(.6,red);
   }
-  function receive(caster,target,amount,{tag='basic',bypass=false,debt=false,critical=false,rawAmount=amount}={}) {
+  function receive(caster,target,amount,{tag='basic',bypass=false,settled=false,debt=false,critical=false,rawAmount=amount}={}) {
     if(!target||target.hp<=0||target.attackable===false||amount<=0)return {hp:0,absorbed:0};
     if(!debt&&target.immuneUntil>time)return {hp:0,absorbed:0};
-    if(!bypass&&!debt) {
+    if(!bypass&&!debt&&!settled) {
       amount*=100/(100+Math.max(0,target.def))*(1-extraReduction(target,tag));
       if(target===boss&&mechanic?.id==='cabinet'&&Math.floor(localTime()/mechanic.phaseSeconds)%2===0)amount*=1+mechanic.lightDamageTakenBonus;
     }
@@ -140,6 +140,7 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
     const beforeShield=amount;if(!bypass)amount=consumeShield(target,amount);const absorbed=beforeShield-amount;
     const actual=Math.min(target.hp,amount);target.hp=Math.max(0,target.hp-actual);counters.damage+=actual;
     if(target.side==='hero'&&caster?.side==='enemy'&&actual>0){target.enemyDeficit+=actual;target.lastEnemyHpHit=time;}
+    if(target.id==='mozhate'&&caster?.side==='enemy'&&actual>0&&target.hp>0){const p=skills(target).passive;target.souls??=0;if(target.souls<p.maxSouls){target.soulLoss=(target.soulLoss||0)+actual/target.maxHp;const n=Math.floor((target.soulLoss+EPS)/p.lossPerSoulMaxHp);target.souls=Math.min(p.maxSouls,target.souls+n);target.soulLoss=target.souls===p.maxSouls?0:Math.max(0,target.soulLoss-n*p.lossPerSoulMaxHp);}}
     if(target===boss&&target.theatreStart!==undefined&&time>=target.theatreStart)target.theatreDamage+=actual;
     emit('damage',{source:caster?.id,sourceSide:caster?.side,target:target.id,targetSide:target.side,amount:actual,absorbed,tag,critical});
     if(target===boss&&mechanic?.id==='elevator'&&target.hp>0&&!target.flags.phase&&target.hp<=target.maxHp*mechanic.threshold){target.flags.phase=true;addShield(target,target.maxHp*mechanic.shieldHpFraction,'elevator',Infinity);target.atk*=1+mechanic.attackBonus;emit('mechanic',{text:`返程：阶段护盾，攻击提高${Math.round(mechanic.attackBonus*100)}%`});}
@@ -161,7 +162,7 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
   function commitDeaths() {
     const deaths=units().filter(u=>u.hp<=0&&!u.deadCommitted&&u.kind!=='environment');
     if(!deaths.length)return;
-    for(const u of deaths){u.deadCommitted=true;u.key=null;u.cleaveCharges=0;emit('death',{target:u.id});}
+    for(const u of deaths){u.deadCommitted=true;u.key=null;u.cleaveCharges=0;u.verdict=null;u.souls=0;u.soulLoss=0;emit('death',{target:u.id});}
     for(const dead of deaths.filter(u=>u.side==='enemy')) {
       for(const d of dead.dots.filter(d=>d.caster.id==='bandebeidiwang'&&d.remaining>0)) {
         const target=attackTargets().filter(e=>HERO_BY_ID[d.caster.id].passive.allowsCursedTarget||!e.dots.some(x=>x.caster.id===d.caster.id)).sort((a,b)=>a.row-b.row||distance(dead,a)-distance(dead,b)||a.order-b.order)[0];
@@ -191,12 +192,16 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
     scheduleWave(d.next,1,tick);
   }
   function targetsFor(caster,max,around=null) { return attackTargets().sort((a,b)=>a.row-b.row||distance(around||caster,a)-distance(around||caster,b)||a.order-b.order).slice(0,max); }
+  function settleVerdict(u){const v=u.verdict;if(!v)return;u.verdict=null;if(u.hp>0&&v.target.hp>0)receive(u,v.target,v.pool*v.ratio,{tag:'derived',settled:true});}
+  function slowFactor(u){return u.chillUntil>time&&!u.controlImmune&&!u.environment&&!(u===boss&&['clock','cabinet'].includes(mechanic?.id))?.85:1;}
+  function scheduleEnemy(u,at){u.nextActionAt=at;const token=u.actionToken=(u.actionToken||0)+1;scheduleWave(at,3+u.order/100,()=>{if(u.actionToken===token)enemyAction(u);});}
+  function chill(u,caster,duration){if(u.statusImmune)return;const before=slowFactor(u);u.chillOwner=caster.id;u.chillUntil=time+duration;const after=slowFactor(u);if(before!==after&&u.nextActionAt>time)scheduleEnemy(u,time+(u.nextActionAt-time)*before/after);const until=u.chillUntil;scheduleWave(until,0,()=>{if(u.chillUntil!==until)return;if(after!==1&&u.nextActionAt>time)scheduleEnemy(u,time+(u.nextActionAt-time)*after);});emit('buff',{source:caster.id,target:u.id,name:'冰冷',until});}
   function active(u) {
-    const h=skills(u),a=h.active,p=h.passive;let target=chooseTarget(u,enemies);
-    const support=['self_heal_shield','lowest_hp_heal','all_ally_heal','self_and_ally_shield','self_damage_reduction','random_purify_or_shield','random_other_ally_effect_bonus','self_shield','distinct_injured_ally_chain_heal'].includes(a.kind)||(a.kind==='shield_branch'&&totalShield(u)===0);
+    const h=skills(u),a=h.active,p=h.passive;if(a.kind==='juwoyaer')settleVerdict(u);let target=chooseTarget(u,enemies);
+    const support=(a.kind==='mozhate'&&u.hp<u.maxHp)||(a.kind==='dunjigaoshou'&&alive(heroes).some(h=>h.hp<h.maxHp))||['self_heal_shield','lowest_hp_heal','all_ally_heal','self_and_ally_shield','self_damage_reduction','random_purify_or_shield','random_other_ally_effect_bonus','self_shield','distinct_injured_ally_chain_heal'].includes(a.kind)||(a.kind==='shield_branch'&&totalShield(u)===0);
     if(!target&&!support)return false;
     const direct=[]; // Captured primary effects for non-recursive AX01-B copies.
-    const hit=(t,raw,canCrit=true,mult=null)=>{const value=raw*(mult??outgoing(u,'active',t));damage(u,t,value,'active',canCrit,1);direct.push({type:'damage',target:t,amount:value});};
+    const hit=(t,raw,canCrit=true,mult=null)=>{const value=raw*(mult??outgoing(u,'active',t));const dealt=damage(u,t,value,'active',canCrit,1);direct.push({type:'damage',target:t,amount:value});return dealt;};
     const healing=(t,raw,native=false,callbacks=null)=>{const outcome=heal(u,t,raw,{original:true,nativeOverflow:native,callbacks});direct.push({type:'heal',target:t,amount:raw*nativeSupport('healing',t,u)});return outcome;};
     const shield=(t,raw,duration)=>{addShield(t,raw,u.id+':active',duration,{caster:u});direct.push({type:'shield',target:t,amount:raw*nativeSupport('shield',t,u),duration});};
     const allies=alive(heroes).filter(h=>h!==u);
@@ -214,6 +219,12 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
     }
     emit('skill',{source:u.id,name:a.name});
     switch(a.kind) {
+      case 'ailianna': {const targets=attackTargets(),mult=(targets.length===1?a.singleMultiplier:1)*(u.bladeReady?(p.star5?.nextBladeMultiplier||1):1);u.bladeReady=false;for(const t of targets)hit(t,u.atk*a.coefficient*mult);break;}
+      case 'mozhate': {if(u.hp<u.maxHp){const souls=u.souls||0;u.souls=0;healing(u,u.maxHp*(a.baseHealMaxHp+souls*a.healPerSoulMaxHp));if(souls&&p.star5){u.reduction=p.star5.postConsumeReduction;u.reductionUntil=time+p.star5.duration;}}for(const t of targetsFor(u,a.targets))hit(t,u.atk*a.coefficient);break;}
+      case 'jinnailuo': {for(const t of targetsFor(u,a.targets)){hit(t,u.atk*a.coefficient/2);hit(t,u.atk*a.coefficient/2);if(t.hp>0)chill(t,u,p.star5?.chillDuration||a.chillDuration);}break;}
+      case 'juwoyaer': {target=attackTargets().sort((x,y)=>y.hp-x.hp||x.order-y.order)[0];if(!target)return false;hit(target,u.atk*a.coefficient);const v=u.verdict={target,pool:0,left:a.windowBasics,ratio:p.star5?.settlementRatio||a.settlementRatio};scheduleWave(time+a.windowSeconds,0,()=>{if(u.verdict===v)settleVerdict(u);});break;}
+      case 'zhangdanaodai': {for(const t of targetsFor(u,a.targets)){const dealt=hit(t,u.atk*a.coefficient),source=u.id+':bulwark',old=u.shields.find(s=>s.source===source)?.amount||0,added=Math.min(dealt.hp*p.damageToShield*nativeSupport('shield',u,u),Math.max(0,u.maxHp*p.ownShieldMaxHp-old),Math.max(0,u.maxHp*.6-totalShield(u)));if(added>0)addShield(u,old+added,source,p.duration,{derived:true,caster:u});}if(p.star5){u.reduction=p.star5.postCastReduction;u.reductionUntil=time+p.star5.duration;}break;}
+      case 'dunjigaoshou': {const attack=u.atk;for(const t of attackTargets())hit(t,attack*a.coefficient);for(const t of alive(heroes))heal(u,t,attack*(p.star5?.healPerAllyAtk||p.healPerAllyAtk)*nativeSupport('healing',t,u),{source:p.name});break;}
       case 'random_other_ally_effect_bonus': {
         const t=allies[Math.floor(rng()*allies.length)],old=t.key;
         t.key={damageBonus:Math.max(old?.damageBonus||0,a.damageBonus),healingBonus:Math.max(old?.healingBonus||0,a.healingBonus),shieldBonus:Math.max(old?.shieldBonus||0,a.shieldBonus),until:time+a.durationSeconds};
@@ -267,6 +278,7 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
       }
       default:throw new Error('Unhandled active '+a.kind);
     }
+    for(const ally of heroes.filter(h=>h!==u&&h.hp>0&&h.id==='ailianna')){const p=skills(ally).passive;ally.cdRemaining=Math.max(0,ally.cdRemaining-p.allyCastReduction);if(p.star5&&!ally.bladeReady){ally.bladeCount=(ally.bladeCount||0)+1;if(ally.bladeCount>=p.star5.allyCastsRequired){ally.bladeCount=0;ally.bladeReady=true;}}}
     u.casts++;u.cdRemaining=u.cd;u.castAt=time;u.cdReduction=0;
     for(const b of effect('repeat_active'))if(u.casts%b.parameters.every_active===0)for(const e of direct){
       if(e.type==='damage')damage(u,e.target,e.amount*b.parameters.ratio,'derived');
@@ -282,8 +294,18 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
     const target=chooseTarget(u,enemies);if(!target)return;
     if(u.focusTarget!==target.id){u.focusTarget=target.id;u.focusCount=0;}
     const attack=u.atk,followupMultiplier=outgoing(u,'passive',target),startTargets=attackTargets().sort((a,b)=>a.order-b.order);
-    const raw=attack*outgoing(u,'basic',target),dealt=damage(u,target,raw,'basic',true,1);u.basics++;u.focusCount++;
+    const chilled=u.id==='jinnailuo'&&target.chillOwner===u.id&&target.chillUntil>time;
+    const raw=attack*outgoing(u,'basic',target)*(chilled?skills(u).passive.chilledBasicCoefficient:1),dealt=damage(u,target,raw,'basic',true,1);u.basics++;u.focusCount++;
     const p=skills(u).passive;
+    if(chilled){
+      const other=startTargets.filter(t=>t!==target&&t.hp>0).sort((a,b)=>(b.chillOwner===u.id&&b.chillUntil>time?1:0)-(a.chillOwner===u.id&&a.chillUntil>time?1:0)||a.order-b.order)[0];
+      if(other)damage(u,other,attack*p.secondaryCoefficient,'passive',false);
+    }
+    if(u.id==='juwoyaer'&&u.verdict){
+      const v=u.verdict;v.pool+=dealt.hp;
+      for(const t of startTargets.filter(t=>t!==target&&t.hp>0))v.pool+=damage(u,t,attack*p.secondaryCoefficient,'passive',true).hp;
+      v.left--;commitDeaths();if(v.target.hp<=0)v.pool=0;if(v.left===0)settleVerdict(u);
+    }
     if(u.id==='yuliang'&&u.form==='offense'&&dealt.hp+dealt.absorbed>0)u.warIntent=Math.min(p.maxStacks,u.warIntent+p.stackPerEvent);
     if(u.id==='hasika'&&u.cleaveCharges>0&&dealt.hp+dealt.absorbed>0){
       u.cleaveCharges--;
@@ -306,9 +328,9 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
     u.newBuffThisAction=false;
     const cast=u.cdRemaining<=EPS&&active(u);if(!cast)basic(u);
     finishLifeEvent();
-    if(u.id==='wudi') {
-      const donor=alive(heroes).filter(h=>h!==u&&h.hp>1).sort((a,b)=>b.hp/b.maxHp-a.hp/a.maxHp||a.order-b.order)[0];
-      if(donor){const p=HERO_BY_ID[u.id].passive,multiplier=p.conversionMultiplier*nativeSupport('shield',u,u),paid=Math.max(0,Math.min(donor.maxHp*p.paymentMaxHpFraction,donor.hp-p.minimumDonorHp,(u.maxHp*.6-totalShield(u))/multiplier));donor.hp-=paid;donor.selfDeficit+=paid;counters.selfPaid+=paid;addShield(u,paid*multiplier,'wudi:payment',p.batchDurationSeconds,{derived:true,stack:true});emit('payment',{source:u.id,target:donor.id,amount:paid});finishLifeEvent();}
+    if(u.id==='wudi'&&u.hp>0) {
+      const p=skills(u).passive,donors=alive(heroes).filter(h=>h!==u&&h.hp>1),multiplier=p.conversionMultiplier*nativeSupport('shield',u,u),payments=donors.map(h=>Math.max(0,Math.min(h.maxHp*p.paymentMaxHpFraction,h.hp-p.minimumDonorHp))),total=payments.reduce((a,b)=>a+b,0),scale=total?Math.min(1,Math.max(0,u.maxHp*.6-totalShield(u))/(total*multiplier)):0;
+      for(const [i,donor] of donors.entries()){const paid=payments[i]*scale;if(paid<=0)continue;donor.hp-=paid;donor.selfDeficit+=paid;counters.selfPaid+=paid;emit('payment',{source:u.id,target:donor.id,amount:paid});}if(total*scale>0)addShield(u,total*scale*multiplier,'wudi:payment',p.batchDurationSeconds,{derived:true,stack:true,caster:u});finishLifeEvent();
     }
     for(const echo of u.echoes.filter(e=>e.due<=u.actions)){heal(u,echo.target,echo.amount,{source:'回响'});finishLifeEvent();}u.echoes=u.echoes.filter(e=>e.due>u.actions);
     for(const debt of u.debt){const due=debt.amount/debt.left;debt.amount-=due;debt.left--;counters.debtPaid+=due;receive({id:debt.source||'debt',side:'enemy'},u,due,{tag:'debt',debt:true});finishLifeEvent();}
@@ -342,7 +364,7 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
     let interval=u.interval;
     if(u===boss&&mechanic?.id==='clock')interval=localTime()%mechanic.period<mechanic.fastStartsAt?mechanic.slowInterval:mechanic.fastInterval;
     if(u===boss&&mechanic?.id==='cabinet')interval=Math.floor(localTime()/mechanic.phaseSeconds)%2===0?mechanic.lightInterval:mechanic.heavyInterval;
-    scheduleWave(time+interval,3+u.order/100,()=>enemyAction(u));
+    scheduleEnemy(u,time+interval/slowFactor(u));
   }
   function summon() {
     if(!boss||boss.hp<=0)return;
@@ -350,7 +372,7 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
       if(alive(enemies).filter(e=>e!==boss).length>=mechanic.maxAliveAdds)break;
       const cells=task.summonTemplate?.allowedSpawnCellsInOrder||[];if(!cells.length)for(let y=0;y<4;y++)for(const x of [0,3,1,2])cells.push({x,y});
       const cell=cells.find(p=>!alive(enemies).some(e=>p.x>=e.gridX&&p.x<e.gridX+e.w&&p.y>=e.gridY&&p.y<e.gridY+e.h));if(!cell)break;
-      const order=enemies.length,u=stateUnit({id:`${task.id}-W${waveIndex+1}-S${order}`,side:'enemy',name:task.summonTemplate?.name||(mechanic.id==='printer'?'纸片人':mechanic.id==='mirror'?'镜像':'候车影'),maxHp:mechanic.summonHp,atk:mechanic.summonAtk,def:task.summonTemplate?.def||0,interval:task.summonTemplate?.interval||3,cdRemaining:Infinity,kind:'normal',row:cell.y,x:cell.x,y:-1-cell.y,gridX:cell.x,gridY:cell.y,w:1,h:1,order});enemies.push(u);emit('summon',{unit:publicUnit(u)});scheduleWave(time+(task.summonTemplate?.firstActionDelaySeconds??1),3+order/100,()=>enemyAction(u));
+      const order=enemies.length,u=stateUnit({id:`${task.id}-W${waveIndex+1}-S${order}`,side:'enemy',name:task.summonTemplate?.name||(mechanic.id==='printer'?'纸片人':mechanic.id==='mirror'?'镜像':'候车影'),maxHp:mechanic.summonHp,atk:mechanic.summonAtk,def:task.summonTemplate?.def||0,interval:task.summonTemplate?.interval||3,cdRemaining:Infinity,kind:'normal',row:cell.y,x:cell.x,y:-1-cell.y,gridX:cell.x,gridY:cell.y,w:1,h:1,order});enemies.push(u);emit('summon',{unit:publicUnit(u)});scheduleEnemy(u,time+(task.summonTemplate?.firstActionDelaySeconds??1));
     }
   }
   function periodic(period,fn,start=period,end=Infinity) {
@@ -378,10 +400,11 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
   function publicUnit(u){return {id:u.id,name:u.name,side:u.side,maxHp:u.maxHp,atk:u.atk,def:u.def,row:u.row,slot:u.slot,x:u.gridX??u.x,y:u.gridY??u.row,w:u.w,h:u.h,kind:u.kind,form:u.form,attackable:u.attackable!==false,environment:u.environment?clone(u.environment):null};}
   function enterWave(index){
     for(const u of enemies)for(const s of u.shields){counters.shieldExpired+=s.amount;emit('shield_expired',{target:u.id,targetSide:u.side,provider:s.provider||'other',source:s.source,amount:s.amount});}
+    for(const h of heroes){h.verdict=null;h.bladeCount=0;h.bladeReady=false;}
     waveIndex=index;waveStartedAt=time;waveToken++;const wave=waves[index];mechanic=wave.mechanic||null;
-    enemies=wave.enemies.map((e,i)=>stateUnit({id:e.id,side:'enemy',name:e.name,maxHp:e.hp,atk:e.atk,def:e.def,interval:e.interval,skill:e.skill,environment:e.environment,attackable:e.attackable,targetable:e.targetable,mustDefeat:e.mustDefeat,kind:e.type,row:e.y,x:e.x+(e.width-1)/2,y:-1-e.y-(e.height-1)/2,gridX:e.x,gridY:e.y,w:e.width,h:e.height,order:i,cdRemaining:e.firstSkillDelay??e.skill?.cd??Infinity}));
+    enemies=wave.enemies.map((e,i)=>stateUnit({id:e.id,side:'enemy',name:e.name,maxHp:e.hp,atk:e.atk,def:e.def,interval:e.interval,skill:e.skill,environment:e.environment,controlImmune:e.controlImmune,statusImmune:e.statusImmune,attackable:e.attackable,targetable:e.targetable,mustDefeat:e.mustDefeat,kind:e.type,row:e.y,x:e.x+(e.width-1)/2,y:-1-e.y-(e.height-1)/2,gridX:e.x,gridY:e.y,w:e.width,h:e.height,order:i,cdRemaining:e.firstSkillDelay??e.skill?.cd??Infinity}));
     boss=enemies.find(e=>e.kind==='boss');
-    for(let i=0;i<enemies.length;i++){const e=enemies[i],spec=wave.enemies[i];scheduleWave(time+(spec.environment?.firstActionDelay??spec.firstActionDelay??1+.19*i),3+e.order/100,()=>enemyAction(e));}
+    for(let i=0;i<enemies.length;i++){const e=enemies[i],spec=wave.enemies[i];scheduleEnemy(e,time+(spec.environment?.firstActionDelay??spec.firstActionDelay??1+.19*i));}
     installMechanics();
     emit('wave',{index:index+1,total:waves.length,units:enemies.map(publicUnit),heroes:heroes.map(h=>({id:h.id,hp:h.hp,shield:totalShield(h),cooldown:h.cdRemaining,nextActionAt:h.nextActionAt,actions:h.actions,basics:h.basics,casts:h.casts,clutch:!!h.flags.clutch,form:h.form,warIntent:h.warIntent,cleaveCharges:h.cleaveCharges,linkUsed:!!h.flags.soulLink,key:h.key?clone(h.key):null,shields:clone(h.shields)}))});
   }

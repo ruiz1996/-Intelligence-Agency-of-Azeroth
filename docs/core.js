@@ -1,3 +1,4 @@
+import {RETIRED_HERO_IDS,ROSTER_REVISION} from './six-heroes.js';
 import { DATA, RULE_VERSION, SCHEMA, HEROES, HERO_BY_ID, TASKS, CATALOG, TEMPLATE_BY_ID, MAX_INVENTORY, BUFF_BY_ID, TALENTS, TALENT_BY_ID, templateSlots, talentBonus, chosenBuffs, taskUnlocked } from './catalog.js';
 import { GameError, requireRule, clone, uid, random, weighted, natural, SCALE, decimalUnits, walletUnits, credit, spend, ceilDiv } from './primitives.js';
 import { makeItem, canEquip, upgradeCost, rollEquipment, salvageValue, templateAvailable } from './equipment.js';
@@ -26,15 +27,15 @@ export { simulate, simulateChunks, chooseTarget } from './combat.js';
 const log=(s,text,now)=>{s.history.unshift({at:now,text});s.history=s.history.slice(0,30);};
 export function createState(now=Date.now()) {
   const s={schema:SCHEMA,rule:RULE_VERSION,cycle:1,rebirths:0,wallet:{gold:decimalUnits(1600).toString(),recruit:decimalUnits(500).toString()},lastIdleAt:now,
-    heroes:Object.fromEntries(HEROES.map((h,i)=>[h.id,{owned:i<3,star:1,shards:0}])),
-    formation:['yan',null,null,'ling','jin',null],items:[],equipment:Object.fromEntries(HEROES.map(h=>[h.id,Array(15).fill(null)])),
+    heroes:Object.fromEntries(HEROES.map((h,i)=>[h.id,{owned:['suxiaoyao','kukalon','hasika'].includes(h.id),star:1,shards:0}])),
+    formation:['kukalon',null,null,'suxiaoyao','hasika',null],items:[],equipment:Object.fromEntries(HEROES.map(h=>[h.id,Array(15).fill(null)])),
     progress:{idle:0,gear:0,rogue:0},firsts:[],runClears:[],historyContribution:[],pendingHistoryContribution:[],buffs:[],enhancedBuff:null,
     pendingBuff:null,pendingEquipment:[],challenge:null,history:[],points:'0',pointRemainder:'0',talents:{},rebirthPlan:null,migrations:{}};
   for(const spec of DATA.initial.equipment) {
     const hero=HEROES.find(h=>h.name===spec.character),template=DATA.equipment.templates115.find(t=>t.tier===1&&t.slot===spec.template);
-    const item=makeItem(template.id,0);s.items.push(item);s.equipment[hero.id][templateSlots(template)[0]]=item.id;
+    if(!hero)continue;const item=makeItem(template.id,0);s.items.push(item);s.equipment[hero.id][templateSlots(template)[0]]=item.id;
   }
-  s.migrations[WEAPON_REVISION]={at:now,report:[]};s.migrations[GROWTH_REVISION]={at:now,refundedPoints:'0',refunded:{},incomeMode:'gold'};
+  s.migrations[ROSTER_REVISION]={at:now,newAccount:true};s.migrations[WEAPON_REVISION]={at:now,report:[]};s.migrations[GROWTH_REVISION]={at:now,refundedPoints:'0',refunded:{},incomeMode:'gold'};
   for(const h of HEROES)s.heroes[h.id].breakthrough=breakthroughRecord(s,h.id);
   initGrowthIncome(s);initIdleGear(s,now);return s;
 }
@@ -94,8 +95,9 @@ export function migrateState(old,now=Date.now()) {
   for(const [key,rate]of [['gold',12+(old.progress?.idle||0)*4],['recruit',1+Math.floor((old.progress?.idle||0)/3)*.5]]){
     const value=minutes*rate+(old.idleCarry?.[key]||0);s.wallet[key]=(walletUnits(s,key)+decimalUnits(value.toFixed(10))).toString();
   }
-  for(const h of HEROES)if(old.heroes?.[h.id])s.heroes[h.id]=clone(old.heroes[h.id]);
-  s.formation=Array.from({length:6},(_,i)=>old.formation?.[i]&&s.heroes[old.formation[i]]?.owned?old.formation[i]:null);if(!s.formation.some(Boolean))s.formation[0]='yan';
+  for(const h of HEROES)s.heroes[h.id]={owned:false,star:1,shards:0,...clone(old.heroes?.[h.id]||{})};
+  for(const id of RETIRED_HERO_IDS)if(old.heroes?.[id])s.heroes[id]=clone(old.heroes[id]);
+  s.formation=Array.from({length:6},(_,i)=>old.formation?.[i]&&s.heroes[old.formation[i]]?.owned?old.formation[i]:null);
   const slots=[0,8,10,11,12,13,14,15,16,17,18,19,20,21,22];
   for(const item of old.items||[]) {
     const owner=Object.keys(old.equipment||{}).find(id=>(old.equipment[id]||[]).includes(item.id));let templateIndex=slots[item.slot]??0;
@@ -169,7 +171,7 @@ export function act(input,action,now=Date.now(),rng=random) {
       if(runFirst){s.runClears.push(task.id);s.progress[task.kind]=Math.max(s.progress[task.kind],task.index);}
       if(first){s.firsts.push(task.id);if(!s.historyContribution.includes(task.id)){s.historyContribution.push(task.id);s.pendingHistoryContribution.push(task.id);}}
       let gold=r.winGold||0,recruit=r.winRecruitPoints||0;
-      if(task.kind==='idle'&&first){gold+=r.historicalUnitBonusGold;recruit+=r.historicalUnitBonusRecruitPoints;if(r.historicalGuaranteedCharacter)result.character=grantHero(s,HEROES.find(h=>h.name===r.historicalGuaranteedCharacter).id);}
+      if(task.kind==='idle'&&first){gold+=r.historicalUnitBonusGold;recruit+=r.historicalUnitBonusRecruitPoints;if(r.historicalGuaranteedCharacter){const hero=HEROES.find(h=>h.name===r.historicalGuaranteedCharacter);if(hero)result.character=grantHero(s,hero.id);else recruit+=100;}}
       if(task.kind==='gear'){
         const band=gearRewardBand(verified.duration);requireRule(band,'装备奖励时限无效');
         space(s,band.randomEquipmentCount+(first&&r.historicalSelectableEquipment?1:0));

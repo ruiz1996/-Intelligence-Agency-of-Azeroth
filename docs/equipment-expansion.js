@@ -1,3 +1,4 @@
+import {SIX_HEROES} from './six-heroes.js';
 // Incremental v0.5 data. Existing template IDs and the imported balance source stay stable.
 export const WEAPON_REVISION='weapons-v0.9';
 const shield=['盾牌'],charm=['护符'],one=['单手剑','单手锤','单手斧'],two=['双手剑','双手斧','双手锤'];
@@ -11,6 +12,7 @@ export const WEAPON_PERMISSIONS=Object.fromEntries([
   ['kuodaya',two,[]],['yuliang',[...one,...two,'长柄武器'],shield],
   ['xifeng',['法杖','单手锤','匕首'],shield],['hasika',['弓','火枪'],[]],
 ].map(([id,main,off])=>[id,{main,off}]));
+Object.assign(WEAPON_PERMISSIONS,Object.fromEntries(SIX_HEROES.map(h=>[h.id,h.weapons])));
 export function expandEquipment(base){
   const additions=[
     ['单手斧','战斧',18,20,false,[4,2,0,2,2]],['双手斧','巨斧',28,20,true,[4,1,0,1,4]],

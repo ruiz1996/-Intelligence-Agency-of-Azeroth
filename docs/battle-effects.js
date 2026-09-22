@@ -1,4 +1,5 @@
 const profiles={
+  ailianna:['#b695e8','fan'],mozhate:['#a490d0','slash'],jinnailuo:['#97d7ff','star'],juwoyaer:['#f0d595','judgement'],zhangdanaodai:['#eac679','guard'],dunjigaoshou:['#e8d39d','halo'],
   wudi:['#9ecce7','shard'],echoz:['#ba91e1','shadow'],kukalon:['#9ebbd0','guard'],asuna:['#efcf85','fan'],
   xiaocheng:['#bdc7ff','star'],suxiaoyao:['#e8d39d','halo'],sacred_druid:['#accb83','leaf'],
   bandebeidiwang:['#b996d4','curse'],lancelot:['#f0d595','judgement'],qinglian:['#e0b675','purify'],

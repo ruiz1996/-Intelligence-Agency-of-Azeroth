@@ -1,50 +1,5 @@
 [
   {
-    "id": "yan",
-    "name": "门卫",
-    "sourceFile": "B01_门卫_v1.png",
-    "sourceSha256": "ad03b0dc85dd3f01bcb5a592215ba2cd23b140b3e4153cc7907108db43b8aa93",
-    "width": 1024,
-    "height": 1536,
-    "status": "candidate-art"
-  },
-  {
-    "id": "ling",
-    "name": "医务员",
-    "sourceFile": "B02_医务员_v1.png",
-    "sourceSha256": "d30d9cf8fd9a33edd34eee2f65b9c3da6365b7d94fc26c84cb5a97827099ef51",
-    "width": 1024,
-    "height": 1536,
-    "status": "candidate-art"
-  },
-  {
-    "id": "jin",
-    "name": "爆破工",
-    "sourceFile": "B03_爆破工_v1.png",
-    "sourceSha256": "bd2acb58e4a8c4fede0688d48b92036f3554e6ad09475fefdb1dd229bc1d6217",
-    "width": 1024,
-    "height": 1536,
-    "status": "candidate-art"
-  },
-  {
-    "id": "shuo",
-    "name": "巡逻员",
-    "sourceFile": "B04_巡逻员_v1.png",
-    "sourceSha256": "871c12c4fd533c8e8cf6d0ed12cc66febc4952241e26031951a1435a8e8d49be",
-    "width": 1024,
-    "height": 1536,
-    "status": "candidate-art"
-  },
-  {
-    "id": "lan",
-    "name": "维修工",
-    "sourceFile": "B05_维修工_v1.png",
-    "sourceSha256": "a8ad122f369b5ef09cd79112a5f81026c624364ed464a8606fcce085d83fb8a0",
-    "width": 1024,
-    "height": 1536,
-    "status": "candidate-art"
-  },
-  {
     "id": "wudi",
     "name": "无敌大搞完",
     "sourceFile": "001_无敌大搞完_v1.png",
@@ -178,5 +133,50 @@
     "width": 1024,
     "height": 1536,
     "status": "user-selected-art"
+  },
+  {
+    "id": "ailianna",
+    "name": "爱莲娜之誓",
+    "sourceFile": "爱莲娜之誓/爱莲娜之誓_用户提供原图_2026-09-18.jpg",
+    "sourceSha256": "c3571ebf60ce353b7188906e1d5a4dd9ec87f0e7a3013618f942b0c5cc945fcd",
+    "width": 1024,
+    "height": 1536,
+    "status": "user-selected-art"
+  },
+  {
+    "id": "mozhate",
+    "name": "魔扎特",
+    "sourceFile": "魔扎特/魔扎特_用户指定原图_2026-09-18.png",
+    "sourceSha256": "4b5e17971d25cf1bea8f59c07ad8c45fb654ff91036093dc4e896613d3c0f91b",
+    "width": 1086,
+    "height": 1448,
+    "status": "user-selected-art"
+  },
+  {
+    "id": "zhangdanaodai",
+    "name": "张大脑袋",
+    "sourceFile": "张大脑袋/张大脑袋_用户指定原图_2026-09-22.png",
+    "sourceSha256": "b5112ebe548d5f33e56ca53420f7c3990f1077691bd0b208a880172875f1f494",
+    "width": 1024,
+    "height": 1536,
+    "status": "user-selected-art"
+  },
+  {
+    "id": "jinnailuo",
+    "name": "紧奈洛丶",
+    "status": "placeholder",
+    "label": "立绘重绘中"
+  },
+  {
+    "id": "dunjigaoshou",
+    "name": "炖鸡高手",
+    "status": "placeholder",
+    "label": "立绘待补充"
+  },
+  {
+    "id": "juwoyaer",
+    "name": "居沃亚尔",
+    "status": "placeholder",
+    "label": "立绘待补充"
   }
 ]

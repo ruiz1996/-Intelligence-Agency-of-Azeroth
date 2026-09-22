@@ -1,23 +1,25 @@
+import {SIX_HEROES} from './six-heroes.js';
 import {HERO_BY_ID} from './catalog.js';
 import {BREAKTHROUGH_PHASES} from './growth-rules.js';
 import {clone,natural,requireRule} from './primitives.js';
 export {BREAKTHROUGH_PHASES} from './growth-rules.js';
 const fields={attribute_2:'attribute2Level',skill_3:'skill3Level',attribute_4:'attribute4Level'};
 // Only explicitly designed coefficients can be purchased. Other active stages
-// and every fifth-star passive remain unavailable until their effects are defined.
+// remain unavailable until their effects are defined; six new passives unlock at 15 ranks.
 export const BREAKTHROUGH_SKILLS={
+  ...Object.fromEntries(SIX_HEROES.map(h=>[h.id,h.star3Fields])),
   xiaocheng:['active.primaryAtkCoefficient','active.secondaryAtkCoefficient'],
   sacred_druid:['active.atkCoefficient','active.dot.tickAtkCoefficient'],
-  ling:['active.atkCoefficient'],
   yuliang:['forms.offense.active.atkCoefficient','forms.defense.active.shieldMaxHpFraction'],
   wudi:['active.shieldPresent.damageCoefficient','active.shieldAbsent.maxHpFraction'],
 };
 export function breakthroughRecord(s,id){return {attribute2Level:0,skill3Level:0,attribute4Level:0,permanentSpent:'0',...s.heroes[id]?.breakthrough};}
 export function breakthroughMultiplier(s,id){const b=breakthroughRecord(s,id);return 1+.01*(b.attribute2Level+b.attribute4Level);}
 export function breakthroughDefinition(s,id){
-  const h=HERO_BY_ID[id],level=breakthroughRecord(s,id).skill3Level;if(!level||!BREAKTHROUGH_SKILLS[id])return h;
+  const h=HERO_BY_ID[id],level=breakthroughRecord(s,id).skill3Level;if(!BREAKTHROUGH_SKILLS[id])return h;
   const next=clone(h),multiplier=1+.02*level;
   for(const path of BREAKTHROUGH_SKILLS[id]){const keys=path.split('.'),key=keys.pop(),parent=keys.reduce((v,k)=>v[k],next);parent[key]*=multiplier;}
+  const b=breakthroughRecord(s,id);if(h.star5&&s.heroes[id].star>=5&&b.attribute2Level===5&&b.skill3Level===5&&b.attribute4Level===5)next.passive.star5=h.star5;
   return next;
 }
 export function breakthroughPreview(s,id,phaseId,count=1){

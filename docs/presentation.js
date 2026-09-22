@@ -3,15 +3,23 @@ import { DATA, HERO_BY_ID, AFFIX_NAMES, TEMPLATE_BY_ID, baseItemStats } from './
 export const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export const num = value => Number(value).toLocaleString('zh-CN', {maximumFractionDigits:1});
 export const percent = value => Number(value*100).toLocaleString('zh-CN',{maximumFractionDigits:4}) + '%';
-export const art = (id, small = false) => `./art/${id}${small ? '-battle' : ''}.webp${id==='kuodaya'?'?v=20260917':''}`;
+export const art = (id, small = false) => `./art/${id}${['jinnailuo','dunjigaoshou','juwoyaer'].includes(id)?'.svg':(small?'-battle':'')+'.webp'}?v=20260922`;
 export const series = tier => DATA.equipment.tiers[tier - 1]?.name || '旧藏';
 export const itemName = item => item.legacyName || TEMPLATE_BY_ID[item.templateId].name;
 export const itemStatsText = item => Object.entries(baseItemStats(item)).filter(([,v]) => v).map(([key,value]) => `${AFFIX_NAMES[key]} ${num(value)}`).join(' · ');
 export const slotIcons = ['⚔','◈','♙','⌑','♜','Ⅱ','═','♧','⌞','○','○','♢','✧','✦','◩'];
 
+export function star5Summary(hero){return {ailianna:'队友每施放6次原生主动，下次刃舞伤害提高15%；最多储存一次。',mozhate:'消耗灵魂后，敌方伤害额外减伤8%，持续3秒。',jinnailuo:'冰冷持续时间延长至8秒。',juwoyaer:'宣判最终追加结算比例提高至60%。',zhangdanaodai:'施放复仇者之盾后，敌方伤害额外减伤6%，持续4秒。',dunjigaoshou:'光铸祝福的每人治疗提高至165%攻击。'}[hero.id]||'';}
 export function skillSummary(hero) {
   const a=hero.active,damage=percent(a.atkCoefficient)+'攻击';
   switch(a.kind){
+    case 'ailianna': return `对全部敌人各造成${percent(a.coefficient)}攻击伤害；施法时仅有一名敌人则乘${a.singleMultiplier}。可暴击。`;
+    case 'mozhate': return `受伤时先消耗全部灵魂，自疗${percent(a.baseHealMaxHp)}最大生命＋每魂${percent(a.healPerSoulMaxHp)}最大生命；再对最多3敌各造成${percent(a.coefficient)}攻击伤害。满血保留灵魂。`;
+    case 'jinnailuo': return `对最多2敌各攻击两次，合计${percent(a.coefficient)}攻击伤害，可独立暴击；施加${hero.passive.star5?.chillDuration||a.chillDuration}秒冰冷，普通行动频率降低15%。`;
+    case 'juwoyaer': return `对当前生命点数最多的敌人造成${percent(a.coefficient)}攻击伤害；累计本人接下来3次普攻及风暴对全体敌人的实际扣血，结束时将${percent(hero.passive.star5?.settlementRatio||a.settlementRatio)}追加给宣判目标。窗口最多12秒，目标死亡不转移。`;
+    case 'zhangdanaodai': return `飞盾攻击主目标并弹射其他敌人，最多3个不同目标，各造成${percent(a.coefficient)}攻击伤害，可暴击。`;
+    case 'dunjigaoshou': return `对全体敌人各造成${percent(a.coefficient)}攻击伤害，可暴击；无敌人但队友受伤时仍可施放。`;
+
     case 'form_dispatch': return '单手或空主手：无视苦痛与防御姿态；双手：致死打击与战斗姿态。战前换装切换，整场三波锁定。';
     case 'random_other_ally_effect_bonus': return `随机另一名存活队友获得「${a.buffName}」：伤害、治疗和护盾效果各+${percent(a.damageBonus)}，持续${a.durationSeconds}秒。`;
     case 'self_shield': return `获得自身${percent(a.shieldMaxHpFraction)}最大生命的护盾，持续${a.shieldDurationSeconds}秒。`;
@@ -34,10 +42,10 @@ export function skillSummary(hero) {
     default:return skillText(hero);
   }
 }
-export function passiveSummary(hero){if(['kuodaya','yuliang','xifeng','hasika'].includes(hero.id))return passiveText(hero);return {
+export function passiveSummary(hero){if(hero.star3Fields)return passiveText(hero);if(['kuodaya','yuliang','xifeng','hasika'].includes(hero.id))return passiveText(hero);return {
   yan:'前排受到的普攻伤害降低12%。',ling:'目标生命低于35%时，主动治疗+35%。',jin:'每三次普攻，向另一目标追加45%攻击伤害，不暴击。',
   shuo:'连续普攻同一目标，第二次起每次伤害+6%，最多+18%；换目标或目标死亡时清空。',lan:'有护盾时，普攻伤害+20%。',
-  wudi:'每次行动后，向生命比例最高的其他队友支付最多3%最大生命（至少留1生命），实付的160%转为8秒护盾。护盾满时不支付。',
+  wudi:'每次自身行动结束，所有其他存活队友各支付最多5%最大生命，至少留1生命；实际总支付的40%转为自身8秒护盾。容量不足按比例减少支付，满盾不扣血。',
   echoz:'持续伤害每次命中生命或护盾，下次心灵震爆多30%攻击倍率，最多三层；施放时消耗。',
   kukalon:'队友生命低于35%、自身高于25%时，替其承受一次敌方单体攻击，冷却8秒；不拦截群伤、持续或环境伤害。',
   asuna:'灰烬觉醒结束后两次行动，普攻和主动直接伤害+30%。',xiaocheng:'普攻有效命中主目标时，对所有其他敌人各造成25%攻击的溅射伤害，不暴击。',
@@ -55,6 +63,7 @@ export function skillCopy(hero, passive=false){
 
 export function skillText(hero) {
   const a = hero.active;
+  if(hero.star3Fields)return skillSummary(hero);
   if(['kuodaya','yuliang','xifeng','hasika'].includes(hero.id))return skillSummary(hero)+(hero.id==='kuodaya'?'本人不在随机目标中；没有其他存活队友时保留技能。增益不增加攻击属性或行动速度，复制与转换效果不重复放大。':hero.id==='yuliang'?'战前装备决定形态，整场三波锁定；单手缺盾或空主手仍可使用防御技能。':hero.id==='xifeng'?'全队满血时保留技能，不会重复治疗同一目标。':'追击窗口不叠加，换波保留剩余次数；灵兽不占据战场格。');
   const damage = `${num(a.atkCoefficient * 100)}%攻击`;
   switch (a.kind) {
@@ -77,6 +86,8 @@ export function skillText(hero) {
 }
 
 export function passiveText(hero) {
+  const p=hero.passive;
+  if(hero.star3Fields)return ({ailianna:'其他存活队友每次成功施放原生主动，当前剩余冷却减少0.5秒；复制与被动不触发，就绪后等下一次自身行动。',mozhate:'每累计承受10%最大生命的敌方实际扣血，获得1枚灵魂，最多5枚。护盾吸收、友方支付不计；跨波保留。',jinnailuo:'普攻命中自身冰冷目标时，主目标造成125%攻击伤害，并向另一名敌人追加40%攻击伤害（不暴击），优先自身冰冷目标。',juwoyaer:'宣判后3次原生普攻变为范围攻击：主目标100%攻击，其他敌人各35%攻击，可暴击；派生伤害不再次累计。',zhangdanaodai:'飞盾实际扣血的200%转为自身8秒护盾，本来源上限30%最大生命。全来源上限60%；护盾吸收和过量伤害不产盾。',dunjigaoshou:'每次成功施放正义盾击，所有存活队友（含自己）各恢复'+percent(p.star5?.healPerAllyAtk||p.healPerAllyAtk)+'攻击的生命。独立于伤害、敌人数和免疫，不暴击。'})[hero.id]+(p.star5?' 五星被动已生效：'+p.star5.name+'。':'');
   if(hero.id==='yuliang')return hero.form==='offense'?'原生普攻实际命中生命或护盾后获得1层战意，最多3层，每层使下次致死打击的内部倍率+10%。主动消耗全部层数；复制、追击不叠层，换波保留。':'敌方伤害额外减伤12个百分点，与其他适用减伤相加后封顶60%。不要求持盾或前排，不减少生命支付或已计算的醉伤。';
   return {
     kuodaya:'KKT：本人存活时，其他存活队友攻击属性+15个百分点，与其他攻击属性加成相加。本人不受益；阵亡时光环消失，已发出的钥匙保留到原到期。',
@@ -87,7 +98,7 @@ export function passiveText(hero) {
     jin:'每完成三次普攻，向另一目标追加45%攻击伤害，不暴击，也不会触发新的追击。',
     shuo:'连续普攻同一目标，第二次起每次多6%伤害，最多18%；换目标或目标死亡时清空。主动技能不改变记录。',
     lan:'身上有任意来源护盾时，普攻伤害提高20%。',
-    wudi:'每次自身行动结束，从生命比例最高的其他存活队友支付最多3%最大生命，将实付的160%转为持续8秒的护盾。队友至少保留1生命；护盾满时不再支付，无队友时不触发。',
+    wudi:'每次自身行动结束，所有其他存活队友各支付最多5%最大生命，至少留1生命；实际总支付的40%转为自身8秒护盾。容量不足按比例减少支付，满盾不扣血。',
     echoz:'每次持续伤害实际命中生命或护盾，积累一层暗影交织，最多三层；下次心灵震爆每层追加30%攻击倍率，施放时消耗全部层数。',
     kukalon:'队友生命低于35%、自身高于25%时，为其承受一次敌方单体攻击，按自身防御结算；8秒冷却。不拦截群伤、持续或环境伤害。',
     asuna:'灰烬觉醒结束后的两次自身行动，普攻及主动直接伤害提高30%；刷新但不叠加。',
@@ -101,7 +112,7 @@ export function passiveText(hero) {
   }[hero.id];
 }
 
-export const roleText = h => ({backline_support:'后排辅助',weapon_form_hybrid:'双形态战士',chain_healer:'链式治疗',single_cleave:'单体与顺劈',tank:'守卫',offtank:'战士',healer:'治疗',single:'单体输出',aoe:'群体输出',aoe_burst:'爆发输出',aoe_all:'群体输出',aoe_splash:'全场溅射',aoe_dot:'持续伤害',single_clutch:'单体输出',group_healer:'群体治疗'}[h.role] || '特工');
+export const roleText = h => ({output:'输出',backline_support:'后排辅助',weapon_form_hybrid:'双形态战士',chain_healer:'链式治疗',single_cleave:'单体与顺劈',tank:'守卫',offtank:'战士',healer:'治疗',single:'单体输出',aoe:'群体输出',aoe_burst:'爆发输出',aoe_all:'群体输出',aoe_splash:'全场溅射',aoe_dot:'持续伤害',single_clutch:'单体输出',group_healer:'群体治疗'}[h.role] || '特工');
 export function mechanicText(task) {
   const m=task.waves?.at(-1)?.mechanic;
   if(!m)return '连续完成三波；队伍生命、护盾和技能冷却保留。';
