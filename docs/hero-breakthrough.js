@@ -12,6 +12,17 @@ export const BREAKTHROUGH_SKILLS={
   sacred_druid:['active.atkCoefficient','active.dot.tickAtkCoefficient'],
   yuliang:['forms.offense.active.atkCoefficient','forms.defense.active.shieldMaxHpFraction'],
   wudi:['active.shieldPresent.damageCoefficient','active.shieldAbsent.maxHpFraction'],
+  echoz:['active.atkCoefficient','active.dot.tickAtkCoefficient'],
+  kukalon:['active.durationSeconds'],
+  asuna:[],
+  suxiaoyao:['active.atkCoefficient'],
+  bandebeidiwang:['active.directAtkCoefficient','active.dot.tickAtkCoefficient'],
+  lancelot:['active.atkCoefficient'],
+  qinglian:['passive.delayFraction'],
+  makelong:['active.atkCoefficient'],
+  kuodaya:['passive.atkPct'],
+  xifeng:[],
+  hasika:['active.atkCoefficient'],
 };
 export function breakthroughRecord(s,id){return {attribute2Level:0,skill3Level:0,attribute4Level:0,permanentSpent:'0',...s.heroes[id]?.breakthrough};}
 export function breakthroughMultiplier(s,id){const b=breakthroughRecord(s,id);return 1+.01*(b.attribute2Level+b.attribute4Level);}
@@ -19,7 +30,12 @@ export function breakthroughDefinition(s,id){
   const h=HERO_BY_ID[id],level=breakthroughRecord(s,id).skill3Level;if(!BREAKTHROUGH_SKILLS[id])return h;
   const next=clone(h),multiplier=1+.02*level;
   for(const path of BREAKTHROUGH_SKILLS[id]){const keys=path.split('.'),key=keys.pop(),parent=keys.reduce((v,k)=>v[k],next);parent[key]*=multiplier;}
-  const b=breakthroughRecord(s,id);if(h.star5&&s.heroes[id].star>=5&&b.attribute2Level===5&&b.skill3Level===5&&b.attribute4Level===5)next.passive.star5=h.star5;
+  if(id==='asuna'){next.active.cooldownSeconds-=.2*level;next.passive.followingOwnActions=level===5?3:2;}
+  if(id==='xifeng'){next.active.atkCoefficient*=multiplier;next.active.jumpCoefficients=next.active.jumpCoefficients.map(value=>value*multiplier);}
+  const b=breakthroughRecord(s,id);if(h.star5&&s.heroes[id].star>=5&&b.attribute2Level===5&&b.skill3Level===5&&b.attribute4Level===5){
+    if(next.forms)for(const form of Object.values(next.forms))form.passive.star5=h.star5;
+    else next.passive.star5=h.star5;
+  }
   return next;
 }
 export function breakthroughPreview(s,id,phaseId,count=1){

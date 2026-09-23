@@ -9,7 +9,21 @@ export const itemName = item => item.legacyName || TEMPLATE_BY_ID[item.templateI
 export const itemStatsText = item => Object.entries(baseItemStats(item)).filter(([,v]) => v).map(([key,value]) => `${AFFIX_NAMES[key]} ${num(value)}`).join(' · ');
 export const slotIcons = ['⚔','◈','♙','⌑','♜','Ⅱ','═','♧','⌞','○','○','♢','✧','✦','◩'];
 
-export function star5Summary(hero){return {ailianna:'队友每施放6次原生主动，下次刃舞伤害提高15%；最多储存一次。',mozhate:'消耗灵魂后，敌方伤害额外减伤8%，持续3秒。',jinnailuo:'冰冷持续时间延长至8秒。',juwoyaer:'宣判最终追加结算比例提高至60%。',zhangdanaodai:'施放复仇者之盾后，敌方伤害额外减伤6%，持续4秒。',dunjigaoshou:'光铸祝福的每人治疗提高至165%攻击。'}[hero.id]||'';}
+export function star5Summary(hero){return {
+  wudi:'这样中！有盾攻击后全队伤害提高10%，持续5秒；无盾施放后再给全队各提供5%最大生命护盾。',
+  echoz:'普攻施加吸血鬼之触，优先攻击未被标记的敌人；直伤向带有本人持续伤害的其他目标溅射20%。',
+  kukalon:'盾墙期间本人伤害提高20%。',asuna:'灰烬觉醒后的下次普攻附加主目标160%攻击伤害，并对其他敌人各造成40%攻击伤害。',
+  xiaocheng:'施放艾露恩之怒前获得4秒20%伤害加成。',suxiaoyao:'每场一次，致死时恢复至20%生命并无敌3秒；可触发兰斯洛普通惩戒光环。',
+  sacred_druid:'施放自然之力后，接下来两次普攻伤害提高35%。',bandebeidiwang:'实际扣血的15%转为8秒自身护盾，本来源最多50%最大生命。',
+  lancelot:'每次原生审判独立有8%概率触发6秒无敌与三次行动150%增伤。',qinglian:'施放活血酒时对所有敌人造成80%攻击伤害，并降低其伤害10%持续5秒。',
+  makelong:'梦境吐息额外治疗每名目标施法前已损失生命的10%。',kuodaya:'本人常驻额外减伤10%。',
+  yuliang:'一次主动同时获得无视苦痛护盾并释放致死打击；防御形态额外减伤增加3个百分点。',
+  xifeng:'每2秒为所有存活队友恢复12%攻击的生命；灵魂链接触发后立即补一次治疗雨。',hasika:'有10%概率闪避敌方普通或主动直接伤害。',
+  ailianna:'队友每次原生主动有20%概率触发爱莲娜一次额外普攻。',mozhate:'原生普攻有20%概率向全敌施加4秒烈火符咒持续伤害。',
+  jinnailuo:'原生普攻命中后附加6秒寒冷。',juwoyaer:'生命低于20%或遭致死伤害时，每场一次获得3秒无敌。',
+  zhangdanaodai:'多目标时向不同主目标额外释放飞盾，每发均可弹射至多3名敌人；额外飞盾伤害为原倍率30%。',
+  dunjigaoshou:'光铸祝福距离越近治疗越强：自身172.5%、相邻165%、两格157.5%、三格150%攻击。',
+}[hero.id]||'';}
 export function skillSummary(hero) {
   const a=hero.active,damage=percent(a.atkCoefficient)+'攻击';
   switch(a.kind){
@@ -24,7 +38,7 @@ export function skillSummary(hero) {
     case 'random_other_ally_effect_bonus': return `随机另一名存活队友获得「${a.buffName}」：伤害、治疗和护盾效果各+${percent(a.damageBonus)}，持续${a.durationSeconds}秒。`;
     case 'self_shield': return `获得自身${percent(a.shieldMaxHpFraction)}最大生命的护盾，持续${a.shieldDurationSeconds}秒。`;
     case 'execute_direct_damage_with_war_intent': return `对当前目标造成${damage}伤害，每层战意再提高${percent(hero.passive.damageBonusPerStack)}；命中前目标生命≤${percent(a.executeThresholdLessThanOrEqual)}时再提高${percent(a.executeMultiplier-1)}。消耗全部战意。`;
-    case 'distinct_injured_ally_chain_heal': return '依次治疗最多3名不同的受伤队友，回复160% / 112% / 78.4%攻击的生命，优先生命比例低者。';
+    case 'distinct_injured_ally_chain_heal': return `依次治疗最多3名不同的受伤队友，回复${a.jumpCoefficients.map(percent).join(' / ')}攻击的生命，优先生命比例低者。`;
     case 'direct_damage_then_basic_followup_window': return `对当前目标造成${damage}伤害，刷新后续2次有效普攻的野兽顺劈。`;
     case 'single_direct_damage': return `对目标造成${damage}伤害。`;
     case 'multi_direct_damage': return `对最多${a.maxTargets}名敌人各造成${damage}伤害。`;
@@ -58,7 +72,8 @@ export function passiveSummary(hero){if(hero.star3Fields)return passiveText(hero
 
 export function skillCopy(hero, passive=false){
   const summary=passive?passiveSummary(hero):skillSummary(hero),detail=passive?passiveText(hero):skillText(hero);
-  return `<p>${esc(summary)}</p>${summary!==detail?`<details class="effect-details"><summary>效果详情</summary><p>${esc(detail)}</p></details>`:''}`;
+  const fifth=passive&&hero.passive.star5?`<p>五星 · ${esc(hero.passive.star5.name)}：${esc(star5Summary(hero))}</p>`:'';
+  return `<p>${esc(summary)}</p>${summary!==detail?`<details class="effect-details"><summary>效果详情</summary><p>${esc(detail)}</p></details>`:''}${fifth}`;
 }
 
 export function skillText(hero) {

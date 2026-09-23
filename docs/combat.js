@@ -46,7 +46,7 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
   const nativeSupport=(kind,target,caster)=>primarySupport(kind,target)+keyBonus(caster,kind);
   function refreshAuras(){
     for(const h of heroes){
-      const value=h.hp>0?Math.max(0,...heroes.filter(other=>other!==h&&other.hp>0&&HERO_BY_ID[other.id].passive.kind==='living_source_other_ally_atk_aura').map(other=>HERO_BY_ID[other.id].passive.atkPct)):0;
+      const value=h.hp>0?Math.max(0,...heroes.filter(other=>other!==h&&other.hp>0&&skills(other).passive.kind==='living_source_other_ally_atk_aura').map(other=>skills(other).passive.atkPct)):0;
       if(h.kkt===value)continue;h.kkt=value;
       const base=h.attackBase??h.baseAttack,percent=h.attackBonus||0;
       h.atk=value?Math.round(base*(1+percent+value)*(h.breakthroughStatMultiplier||1)):h.baseAttack;
@@ -57,10 +57,11 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
   function finishLifeEvent(){
     commitDeaths();refreshAuras();
     const caster=heroes.find(h=>h.id==='xifeng'&&h.hp>0&&!h.flags.soulLink),team=alive(heroes);
-    if(!caster)return;const p=HERO_BY_ID.xifeng.passive;
+    if(!caster)return;const p=skills(caster).passive;
     if(team.length<p.minAliveParticipants||!team.some(h=>h.hp/h.maxHp<=p.thresholdInclusive))return;
     caster.flags.soulLink=true;
     emit('redistribute',{source:caster.id,name:p.name,tag:p.eventTag,changes:redistributeLife(team)});
+    if(p.star5?.design==='healing_rain')for(const h of alive(heroes))heal(caster,h,caster.atk*p.star5.ratio*nativeSupport('healing',h,caster),{source:'治疗之雨·链接'});
   }
   function addShield(target,amount,source,duration,{derived=false,stack=false,caster=null}={}) {
     if(target.hp<=0||amount<=0)return 0;
@@ -86,7 +87,7 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
     const effective=Math.min(amount,target.maxHp-target.hp,enemyOnly?target.enemyDeficit:Infinity);
     const selfRestored=enemyOnly?0:Math.min(target.selfDeficit,effective);target.selfDeficit-=selfRestored;
     const enemyEffective=Math.min(target.enemyDeficit,effective-selfRestored);target.enemyDeficit-=enemyEffective;target.hp+=effective;
-    counters.healing+=effective;emit('heal',{source:effect('emergency_heal').some(b=>b.name===source)?'other':caster?.id,target:target.id,targetSide:target.side,amount:effective,tag:source});
+    counters.healing+=effective;emit('heal',{source:effect('emergency_heal').some(b=>b.name===source)?'other':caster?.id,target:target.id,targetSide:target.side,amount:effective,attempted:amount,tag:source});
     const derivedCallbacks=()=>{if(original){
       const native=HERO_BY_ID[caster?.id]?.passive,overflow=Math.max(0,amount-effective),nativeRatio=nativeOverflow?native.overhealConversion:0;
       if(nativeOverflow)addShield(target,Math.min(overflow*nativeRatio,target.maxHp*native.targetMaxHpCap),caster.id+':aegis',native.shieldDurationSeconds,{derived:true});
@@ -105,6 +106,11 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
     if(general)for(const b of effect('conditional_damage'))if(u.hp/u.maxHp<b.parameters.threshold)n+=b.parameters.damage_pct;
     if(general){n+=Math.min(u.actions,param('action_ramp','max_stacks'))*param('action_ramp','per_stack');if(u.row===1)n+=param('position_damage','damage_pct');}
     if((basic||tag==='active')&&u.actionBuffCount>0)n+=u.actionBuff;
+    if(u.id==='wudi'&&u.teamDamageUntil>time)n+=u.teamDamageBonus||0;
+    if(heroes.some(h=>h.id==='wudi'&&h.hp>0&&h.teamDamageUntil>time)&&u.id!=='wudi')n+=heroes.find(h=>h.id==='wudi'&&h.hp>0&&h.teamDamageUntil>time).teamDamageBonus||0;
+    if(u.id==='kukalon'&&u.reductionUntil>time&&skills(u).passive.star5?.design==='avatar')n+=skills(u).passive.star5.damageBonus;
+    if(u.id==='xiaocheng'&&u.eclipseUntil>time)n+=u.eclipseBonus||0;
+    if(u.id==='sacred_druid'&&basic&&u.avatarBasics>0)n+=skills(u).passive.star5?.basicBonus||0;
     if(basic){
       if(u.id==='shuo'){const p=HERO_BY_ID[u.id].passive;n+=Math.min(p.maxStacks,u.focusCount)*p.bonusPerStack;}
       if(u.id==='lan'&&totalShield(u)>0)n+=HERO_BY_ID[u.id].passive.bonus;
@@ -118,7 +124,8 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
     let red=0;
     if(target.side==='hero') {
       red+=bonus.extra_damage_reduction||0;
-      if(target.id==='yuliang'&&target.form==='defense')red+=skills(target).passive.reduction;
+      if(target.id==='yuliang'&&target.form==='defense')red+=skills(target).passive.reduction+(skills(target).passive.star5?.design==='dual_cultivation'?skills(target).passive.star5.defenseReductionBonus:0);
+      if(target.id==='kuodaya'&&skills(target).passive.star5?.design==='dk_guard')red+=skills(target).passive.star5.reduction;
       if(target.id==='yan'&&target.row===0&&tag==='basic')red+=HERO_BY_ID[target.id].passive.reduction;
       if(target.reductionUntil>time)red+=target.reduction;
       if(target.row===0){red+=param('position_reduction','reduction');for(const b of effect('opening_reduction'))if(time<b.parameters.duration_s)red+=b.parameters.reduction;}
@@ -132,13 +139,20 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
   function receive(caster,target,amount,{tag='basic',bypass=false,settled=false,debt=false,critical=false,rawAmount=amount}={}) {
     if(!target||target.hp<=0||target.attackable===false||amount<=0)return {hp:0,absorbed:0};
     if(!debt&&target.immuneUntil>time)return {hp:0,absorbed:0};
+    if(target.id==='hasika'&&caster?.side==='enemy'&&['basic','active'].includes(tag)&&skills(target).passive.star5?.design==='backstep'&&rng()<skills(target).passive.star5.dodgeChance){emit('dodge',{target:target.id,source:caster.id});return {hp:0,absorbed:0};}
     if(!bypass&&!debt&&!settled) {
       amount*=100/(100+Math.max(0,target.def))*(1-extraReduction(target,tag));
       if(target===boss&&mechanic?.id==='cabinet'&&Math.floor(localTime()/mechanic.phaseSeconds)%2===0)amount*=1+mechanic.lightDamageTakenBonus;
     }
-    if(target.id==='qinglian'&&caster?.side==='enemy'&&['basic','active'].includes(tag)&&!debt&&!bypass){const p=HERO_BY_ID[target.id].passive,delayed=amount*p.delayFraction;amount-=delayed;target.debt.push({source:caster.id,amount:delayed,left:p.repayOverFollowingOwnActionEnds});counters.debtCreated+=delayed;}
+    if(target.id==='qinglian'&&caster?.side==='enemy'&&['basic','active'].includes(tag)&&!debt&&!bypass){const p=skills(target).passive,delayed=amount*p.delayFraction;amount-=delayed;target.debt.push({source:caster.id,amount:delayed,left:p.repayOverFollowingOwnActionEnds});counters.debtCreated+=delayed;}
     const beforeShield=amount;if(!bypass)amount=consumeShield(target,amount);const absorbed=beforeShield-amount;
     const actual=Math.min(target.hp,amount);target.hp=Math.max(0,target.hp-actual);counters.damage+=actual;
+    if(target.id==='suxiaoyao'&&target.hp<=0&&!target.flags.redemption&&skills(target).passive.star5?.design==='redemption'){
+      const p=skills(target).passive.star5;target.flags.redemption=true;target.hp=target.maxHp*p.restoreFraction;target.immuneUntil=Math.max(target.immuneUntil,time+p.invulnerableSeconds);counters.healing+=target.hp;emit('heal',{source:target.id,target:target.id,targetSide:'hero',amount:target.hp,tag:'救赎之魂'});emit('revive',{target:target.id});
+      const lance=heroes.find(h=>h.id==='lancelot'&&h.hp>0);if(lance){const lp=skills(lance).passive;lance.actionBuff=Math.max(lance.actionBuff||0,lp.ordinary.damageBonus);lance.actionBuffCount=Math.max(lance.actionBuffCount||0,lp.ordinary.followingOwnActions);emit('clutch',{target:lance.id,text:'救赎之魂触发惩戒光环'});}
+    }
+    if(target.id==='juwoyaer'&&target.hp>0&&!target.flags.divineShield&&skills(target).passive.star5?.design==='divine_shield'&&target.hp/target.maxHp<.2){target.flags.divineShield=true;target.immuneUntil=time+skills(target).passive.star5.invulnerableSeconds;emit('immune',{target:target.id,source:target.id});}
+    if(target.id==='juwoyaer'&&target.hp<=0&&!target.flags.divineShield&&skills(target).passive.star5?.design==='divine_shield'){target.flags.divineShield=true;target.hp=1;target.immuneUntil=time+skills(target).passive.star5.invulnerableSeconds;emit('immune',{target:target.id,source:target.id});}
     if(target.side==='hero'&&caster?.side==='enemy'&&actual>0){target.enemyDeficit+=actual;target.lastEnemyHpHit=time;}
     if(target.id==='mozhate'&&caster?.side==='enemy'&&actual>0&&target.hp>0){const p=skills(target).passive;target.souls??=0;if(target.souls<p.maxSouls){target.soulLoss=(target.soulLoss||0)+actual/target.maxHp;const n=Math.floor((target.soulLoss+EPS)/p.lossPerSoulMaxHp);target.souls=Math.min(p.maxSouls,target.souls+n);target.soulLoss=target.souls===p.maxSouls?0:Math.max(0,target.soulLoss-n*p.lossPerSoulMaxHp);}}
     if(target===boss&&target.theatreStart!==undefined&&time>=target.theatreStart)target.theatreDamage+=actual;
@@ -156,8 +170,18 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
     return {hp:actual,absorbed,raw:rawAmount};
   }
   function damage(caster,target,raw,tag='basic',canCrit=false,multiplier=null) {
+    if(caster?.side==='enemy'&&caster.damageDownUntil>time&&tag!=='environment')raw*=1-caster.damageDown;
     const boosted=raw*(multiplier??outgoing(caster,tag,target)),critical=canCrit&&rng()<(caster.crit||0),value=boosted*(critical?caster.critDamage:1);
-    return receive(caster,target,value,{tag,critical,rawAmount:boosted});
+    const dealt=receive(caster,target,value,{tag,critical,rawAmount:boosted});
+    if(caster?.id==='bandebeidiwang'&&target?.side==='enemy'&&dealt.hp>0&&skills(caster).passive.star5?.design==='soul_siphon'){
+      const p=skills(caster).passive.star5,source=caster.id+':star5',old=caster.shields.find(s=>s.source===source)?.amount||0;
+      addShield(caster,Math.min(caster.maxHp*p.cap,old+dealt.hp*p.ratio),source,p.duration,{derived:true,caster});
+    }
+    if(caster?.id==='echoz'&&target?.side==='enemy'&&['basic','active'].includes(tag)&&dealt.hp+dealt.absorbed>0&&skills(caster).passive.star5?.design==='vampiric_touch'){
+      const p=skills(caster).passive.star5;
+      for(const other of attackTargets().filter(e=>e!==target&&e.dots.some(d=>d.caster===caster)))damage(caster,other,boosted*p.splashRatio,'derived',false,1);
+    }
+    return dealt;
   }
   function commitDeaths() {
     const deaths=units().filter(u=>u.hp<=0&&!u.deadCommitted&&u.kind!=='environment');
@@ -172,7 +196,7 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
     if(deaths.some(u=>u.side==='hero')) {
       const lance=heroes.find(u=>u.id==='lancelot'&&u.hp>0);
       if(lance){
-        const p=HERO_BY_ID[lance.id].passive;
+        const p=skills(lance).passive;
         if(alive(heroes).length===1&&heroes.length>p.lastSurvivor.requiresStartingAlliesAtLeast&&!lance.flags.clutch){lance.flags.clutch=true;lance.immuneUntil=time+p.lastSurvivor.invulnerableSeconds;lance.cdRemaining=0;lance.actionBuff=p.lastSurvivor.damageBonus;lance.actionBuffCount=p.lastSurvivor.followingOwnActions;emit('clutch',{target:lance.id,text:`惩戒光环：独存，无敌${p.lastSurvivor.invulnerableSeconds}秒，审判就绪`});}
         else if(lance.actionBuff!==p.lastSurvivor.damageBonus||lance.actionBuffCount<=0){lance.actionBuff=p.ordinary.damageBonus;lance.actionBuffCount=p.ordinary.followingOwnActions;}
       }
@@ -181,9 +205,9 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
   }
   function addDot(caster,target,spec,multiplier) {
     if(!target||target.hp<=0)return;
-    if(spec.maxOwnTargets===1)for(const e of enemies)e.dots=e.dots.filter(d=>d.caster!==caster);
-    if(spec.sameSourceRefresh!==false)target.dots=target.dots.filter(d=>d.caster!==caster);
-    const d={caster,target,remaining:spec.ticks,raw:caster.atk*spec.tickAtkCoefficient*multiplier,interval:spec.tickIntervalSeconds,next:time+spec.firstTickOffsetSeconds};target.dots.push(d);
+    if(spec.maxOwnTargets===1)for(const e of enemies)e.dots=e.dots.filter(d=>d.caster!==caster||d.name!==spec.name);
+    if(spec.sameSourceRefresh!==false)target.dots=target.dots.filter(d=>d.caster!==caster||d.name!==spec.name);
+    const d={caster,target,name:spec.name,remaining:spec.ticks,raw:caster.atk*spec.tickAtkCoefficient*multiplier,interval:spec.tickIntervalSeconds,next:time+spec.firstTickOffsetSeconds};target.dots.push(d);
     const tick=()=>{
       const target=d.target;if(target.hp<=0||!target.dots.includes(d)||d.remaining<=0)return;
       const dealt=damage(caster,target,d.raw,'periodic',false,1);if(caster.id==='echoz'&&dealt.hp+dealt.absorbed>0)caster.dotStacks=Math.min(HERO_BY_ID[caster.id].passive.maxStacks,caster.dotStacks+1);
@@ -218,21 +242,33 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
       }
     }
     emit('skill',{source:u.id,name:a.name});
+    if(u.id==='xiaocheng'&&p.star5?.design==='eclipse'){u.eclipseUntil=time+p.star5.duration;u.eclipseBonus=p.star5.damageBonus;}
+    if(u.id==='lancelot'&&p.star5?.design==='judgment_clutch'&&rng()<p.star5.chance){u.immuneUntil=Math.max(u.immuneUntil,time+p.lastSurvivor.invulnerableSeconds);u.actionBuff=Math.max(u.actionBuff,p.lastSurvivor.damageBonus);u.actionBuffCount=Math.max(u.actionBuffCount,p.lastSurvivor.followingOwnActions);u.newBuffThisAction=true;emit('clutch',{target:u.id,text:'审判触发惩戒光环'});}
     switch(a.kind) {
       case 'ailianna': {const targets=attackTargets(),mult=(targets.length===1?a.singleMultiplier:1)*(u.bladeReady?(p.star5?.nextBladeMultiplier||1):1);u.bladeReady=false;for(const t of targets)hit(t,u.atk*a.coefficient*mult);break;}
       case 'mozhate': {if(u.hp<u.maxHp){const souls=u.souls||0;u.souls=0;healing(u,u.maxHp*(a.baseHealMaxHp+souls*a.healPerSoulMaxHp));if(souls&&p.star5){u.reduction=p.star5.postConsumeReduction;u.reductionUntil=time+p.star5.duration;}}for(const t of targetsFor(u,a.targets))hit(t,u.atk*a.coefficient);break;}
       case 'jinnailuo': {for(const t of targetsFor(u,a.targets)){hit(t,u.atk*a.coefficient/2);hit(t,u.atk*a.coefficient/2);if(t.hp>0)chill(t,u,p.star5?.chillDuration||a.chillDuration);}break;}
       case 'juwoyaer': {target=attackTargets().sort((x,y)=>y.hp-x.hp||x.order-y.order)[0];if(!target)return false;hit(target,u.atk*a.coefficient);const v=u.verdict={target,pool:0,left:a.windowBasics,ratio:p.star5?.settlementRatio||a.settlementRatio};scheduleWave(time+a.windowSeconds,0,()=>{if(u.verdict===v)settleVerdict(u);});break;}
-      case 'zhangdanaodai': {for(const t of targetsFor(u,a.targets)){const dealt=hit(t,u.atk*a.coefficient),source=u.id+':bulwark',old=u.shields.find(s=>s.source===source)?.amount||0,added=Math.min(dealt.hp*p.damageToShield*nativeSupport('shield',u,u),Math.max(0,u.maxHp*p.ownShieldMaxHp-old),Math.max(0,u.maxHp*.6-totalShield(u)));if(added>0)addShield(u,old+added,source,p.duration,{derived:true,caster:u});}if(p.star5){u.reduction=p.star5.postCastReduction;u.reductionUntil=time+p.star5.duration;}break;}
-      case 'dunjigaoshou': {const attack=u.atk;for(const t of attackTargets())hit(t,attack*a.coefficient);for(const t of alive(heroes))heal(u,t,attack*(p.star5?.healPerAllyAtk||p.healPerAllyAtk)*nativeSupport('healing',t,u),{source:p.name});break;}
+      case 'zhangdanaodai': {
+        const strikes=targetsFor(u,a.targets),used=new Set(),bell=p.star5?.design==='holy_bell';
+        const volleys=bell?Math.min(3,attackTargets().length):1;
+        for(let volley=0;volley<volleys;volley++){
+          const primary=volley===0?strikes[0]:targetsFor(u,99).find(t=>!used.has(t.id));if(!primary)break;used.add(primary.id);
+          const targets=bell?[primary,...targetsFor(u,99,primary).filter(t=>t!==primary).slice(0,2)]:strikes;
+          for(const t of targets){const dealt=hit(t,u.atk*a.coefficient*(volley===0?1:p.star5.extraRatio)),source=u.id+':bulwark',old=u.shields.find(s=>s.source===source)?.amount||0,added=Math.min(dealt.hp*p.damageToShield*nativeSupport('shield',u,u),Math.max(0,u.maxHp*p.ownShieldMaxHp-old),Math.max(0,u.maxHp*.6-totalShield(u)));if(added>0)addShield(u,old+added,source,p.duration,{derived:true,caster:u});}
+        }
+        if(p.star5&&!bell){u.reduction=p.star5.postCastReduction;u.reductionUntil=time+p.star5.duration;}break;
+      }
+      case 'dunjigaoshou': {const attack=u.atk;for(const t of attackTargets())hit(t,attack*a.coefficient);for(const t of alive(heroes)){const d=Math.abs(u.x-t.x)+Math.abs(u.y-t.y),ratio=p.star5?.design==='proximity_heal'?(p.star5.selfMultiplier??1.3)-(p.star5.step??.1)*d:1;heal(u,t,attack*(p.star5?.healPerAllyAtk||p.healPerAllyAtk)*ratio*nativeSupport('healing',t,u),{source:p.name});}break;}
       case 'random_other_ally_effect_bonus': {
         const t=allies[Math.floor(rng()*allies.length)],old=t.key;
         t.key={damageBonus:Math.max(old?.damageBonus||0,a.damageBonus),healingBonus:Math.max(old?.healingBonus||0,a.healingBonus),shieldBonus:Math.max(old?.shieldBonus||0,a.shieldBonus),until:time+a.durationSeconds};
         schedule(t.key.until,0,()=>{});emit('buff',{source:u.id,target:t.id,name:a.buffName,until:t.key.until});break;
       }
-      case 'self_shield':shield(u,u.maxHp*a.shieldMaxHpFraction,a.shieldDurationSeconds);break;
+      case 'self_shield':{shield(u,u.maxHp*a.shieldMaxHpFraction,a.shieldDurationSeconds);if(target&&p.star5?.design==='dual_cultivation'){const o=u.skillSnapshot.forms.offense.active,po=u.skillSnapshot.forms.offense.passive,stacks=u.warIntent||0;u.warIntent=0;hit(target,u.atk*o.atkCoefficient*(1+po.damageBonusPerStack*stacks)*(target.hp/target.maxHp<=o.executeThresholdLessThanOrEqual?o.executeMultiplier:1));}break;}
       case 'execute_direct_damage_with_war_intent': {
         const stacks=u.warIntent,execute=target.hp/target.maxHp<=a.executeThresholdLessThanOrEqual;u.warIntent=0;
+        if(p.star5?.design==='dual_cultivation'){const d=u.skillSnapshot.forms.defense.active;shield(u,u.maxHp*d.shieldMaxHpFraction,d.shieldDurationSeconds);}
         hit(target,u.atk*a.atkCoefficient*(1+p.damageBonusPerStack*stacks)*(execute?a.executeMultiplier:1));break;
       }
       case 'distinct_injured_ally_chain_heal': {
@@ -243,13 +279,13 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
       case 'direct_damage_then_basic_followup_window':hit(target,u.atk*a.atkCoefficient);u.cleaveCharges=a.validCastSetsCharges;break;
       case 'self_heal_shield': healing(u,u.maxHp*a.healMaxHpFraction);shield(u,u.maxHp*a.shieldMaxHpFraction,a.shieldDurationSeconds);break;
       case 'lowest_hp_heal': healing(target,u.atk*a.atkCoefficient*(u.id==='ling'&&target.hp/target.maxHp<p.thresholdStrictLessThan?p.multiplier:1),u.id==='suxiaoyao');break;
-      case 'all_ally_heal': for(const t of alive(heroes)){const out=healing(t,u.atk*a.atkCoefficient);if(out.effective>0)u.echoes.push({target:t,amount:out.effective*p.effectiveHealFraction,due:u.actions+1});}break;
+      case 'all_ally_heal': {const missing=new Map(alive(heroes).map(t=>[t,t.maxHp-t.hp]));for(const t of alive(heroes)){const extra=p.star5?.design==='rewind'?missing.get(t)*p.star5.missingFraction:0;if(extra>0){const out=healing(t,extra);if(out.effective>0)u.echoes.push({target:t,amount:out.effective*p.effectiveHealFraction,due:u.actions+1});}const out=healing(t,u.atk*a.atkCoefficient);if(out.effective>0)u.echoes.push({target:t,amount:out.effective*p.effectiveHealFraction,due:u.actions+1});}break;}
       case 'self_and_ally_shield': {const other=lowest(heroes.filter(h=>h!==u));for(const t of [u,other].filter(Boolean))shield(t,u.atk*a.atkCoefficient,a.durationSeconds);break;}
       case 'self_damage_reduction':u.reduction=a.reduction;u.reductionUntil=time+a.durationSeconds;break;
       case 'shield_branch': {
         const snapshot=totalShield(u);
-        if(snapshot>0){consumeShield(u,snapshot*a.shieldPresent.spendFraction,true);damage(u,target,snapshot*a.shieldPresent.damageCoefficient,'shield_to_damage');}
-        else shield(u,u.maxHp*a.shieldAbsent.maxHpFraction,a.shieldAbsent.durationSeconds);break;
+        if(snapshot>0){consumeShield(u,snapshot*a.shieldPresent.spendFraction,true);damage(u,target,snapshot*a.shieldPresent.damageCoefficient,'shield_to_damage');if(p.star5?.design==='not_bad'){u.teamDamageUntil=time+p.star5.duration;u.teamDamageBonus=p.star5.damageBonus;}}
+        else {shield(u,u.maxHp*a.shieldAbsent.maxHpFraction,a.shieldAbsent.durationSeconds);if(p.star5?.design==='not_bad')for(const t of alive(heroes))addShield(t,t.maxHp*p.star5.teamShield,t.id+':not_bad',p.star5.shieldDuration,{caster:u});}break;
       }
       case 'random_purify_or_shield': {
         if(rng()<a.outcomes[0].probability){const o=a.outcomes[0],debt=u.debt.reduce((n,b)=>n+b.amount,0);if(debt>0){for(const b of u.debt)b.amount*=1-o.purifyOutstandingDebtFraction;counters.debtPurified+=debt*o.purifyOutstandingDebtFraction;emit('purify',{target:u.id,amount:debt*o.purifyOutstandingDebtFraction});}else shield(u,u.maxHp*o.zeroDebtShieldMaxHpFraction,o.durationSeconds);}
@@ -278,7 +314,11 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
       }
       default:throw new Error('Unhandled active '+a.kind);
     }
+    if(u.id==='asuna'&&p.star5?.design==='holy_hammer')u.hammerUntil=time+p.star5.duration;
+    if(u.id==='sacred_druid'&&p.star5?.design==='elune_avatar')u.avatarBasics=p.star5.basics;
+    if(u.id==='qinglian'&&p.star5?.design==='fire_breath')for(const t of attackTargets()){damage(u,t,u.atk*p.star5.coefficient,'derived',false,1);t.damageDown=p.star5.damageDown;t.damageDownUntil=time+p.star5.duration;}
     for(const ally of heroes.filter(h=>h!==u&&h.hp>0&&h.id==='ailianna')){const p=skills(ally).passive;ally.cdRemaining=Math.max(0,ally.cdRemaining-p.allyCastReduction);if(p.star5&&!ally.bladeReady){ally.bladeCount=(ally.bladeCount||0)+1;if(ally.bladeCount>=p.star5.allyCastsRequired){ally.bladeCount=0;ally.bladeReady=true;}}}
+    for(const ally of heroes.filter(h=>h!==u&&h.hp>0&&h.id==='ailianna'&&skills(h).passive.star5?.design==='step_out'))if(rng()<skills(ally).passive.star5.chance)basic(ally);
     u.casts++;u.cdRemaining=u.cd;u.castAt=time;u.cdReduction=0;
     for(const b of effect('repeat_active'))if(u.casts%b.parameters.every_active===0)for(const e of direct){
       if(e.type==='damage')damage(u,e.target,e.amount*b.parameters.ratio,'derived');
@@ -291,12 +331,19 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
     return true;
   }
   function basic(u) {
-    const target=chooseTarget(u,enemies);if(!target)return;
+    let target=chooseTarget(u,enemies);
+    if(u.id==='echoz'&&skills(u).passive.star5?.design==='vampiric_touch')target=attackTargets().filter(t=>!t.dots.some(d=>d.caster===u&&d.name==='吸血鬼之触')).sort((a,b)=>a.row-b.row||distance(u,a)-distance(u,b)||a.order-b.order)[0]||target;
+    if(!target)return;
     if(u.focusTarget!==target.id){u.focusTarget=target.id;u.focusCount=0;}
     const attack=u.atk,followupMultiplier=outgoing(u,'passive',target),startTargets=attackTargets().sort((a,b)=>a.order-b.order);
     const chilled=u.id==='jinnailuo'&&target.chillOwner===u.id&&target.chillUntil>time;
     const raw=attack*outgoing(u,'basic',target)*(chilled?skills(u).passive.chilledBasicCoefficient:1),dealt=damage(u,target,raw,'basic',true,1);u.basics++;u.focusCount++;
     const p=skills(u).passive;
+    if(u.id==='echoz'&&p.star5?.design==='vampiric_touch')addDot(u,target,{name:'吸血鬼之触',ticks:3,tickAtkCoefficient:p.star5.tickCoefficient,tickIntervalSeconds:2,firstTickOffsetSeconds:2},outgoing(u,'periodic',target));
+    if(u.id==='asuna'&&p.star5?.design==='holy_hammer'&&u.hammerUntil>time){u.hammerUntil=0;damage(u,target,attack*p.star5.primary,'derived',false,1);for(const t of startTargets.filter(t=>t!==target&&t.hp>0))damage(u,t,attack*p.star5.splash,'derived',false,1);}
+    if(u.id==='sacred_druid'&&u.avatarBasics>0)u.avatarBasics--;
+    if(u.id==='mozhate'&&p.star5?.design==='fire_rune'&&rng()<p.star5.chance)for(const t of attackTargets())addDot(u,t,{name:'烈火符咒',ticks:2,tickAtkCoefficient:p.star5.tickCoefficient,tickIntervalSeconds:2,firstTickOffsetSeconds:2},outgoing(u,'periodic',t));
+    if(u.id==='jinnailuo'&&p.star5?.design==='frost_mastery'&&dealt.hp+dealt.absorbed>0&&target.hp>0)chill(target,u,p.star5.duration);
     if(chilled){
       const other=startTargets.filter(t=>t!==target&&t.hp>0).sort((a,b)=>(b.chillOwner===u.id&&b.chillUntil>time?1:0)-(a.chillOwner===u.id&&a.chillUntil>time?1:0)||a.order-b.order)[0];
       if(other)damage(u,other,attack*p.secondaryCoefficient,'passive',false);
@@ -409,6 +456,9 @@ export function* simulateChunks(challenge,{trace=true,chunkEvents=256}={}) {
     emit('wave',{index:index+1,total:waves.length,units:enemies.map(publicUnit),heroes:heroes.map(h=>({id:h.id,hp:h.hp,shield:totalShield(h),cooldown:h.cdRemaining,nextActionAt:h.nextActionAt,actions:h.actions,basics:h.basics,casts:h.casts,clutch:!!h.flags.clutch,form:h.form,warIntent:h.warIntent,cleaveCharges:h.cleaveCharges,linkUsed:!!h.flags.soulLink,key:h.key?clone(h.key):null,shields:clone(h.shields)}))});
   }
   refreshAuras();enterWave(0);finishLifeEvent();
+  for(const h of heroes.filter(h=>h.id==='xifeng'&&skills(h).passive.star5?.design==='healing_rain')){
+    const rain=()=>{if(h.hp>0)for(const t of alive(heroes))heal(h,t,h.atk*skills(h).passive.star5.ratio*nativeSupport('healing',t,h),{source:'治疗之雨'});schedule(time+2,1,rain);};schedule(2,1,rain);
+  }
   const initial=units().map(publicUnit);
   for(const h of heroes){
     for(const b of effect('opening_shield'))addShield(h,h.maxHp*b.parameters.max_hp_ratio,b.id,b.parameters.duration_s);

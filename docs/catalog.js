@@ -4,12 +4,13 @@ import { NEW_HEROES } from './new-heroes.js';
 import { WEAPON_PERMISSIONS, expandEquipment } from './equipment-expansion.js';
 import {applyBattleRules} from './battle-rules.js';
 import {applyHeroRework} from './hero-reworks.js';
+import {applyFiveStar} from './five-star.js';
 import {GROWTH_TALENTS} from './growth-rules.js';
 export {BATTLE_LIMITS,gearRewardBand} from './battle-rules.js';
-export const RULE_VERSION = 'agency-roster-10';
-const characters=[...BASE_DATA.characters,...NEW_HEROES,...SIX_HEROES].filter(h=>!RETIRED_HERO_IDS.includes(h.id)).map(applyHeroRework).map(h=>({...h,weapons:WEAPON_PERMISSIONS[h.id]||h.weapons}));
+export const RULE_VERSION = 'agency-five-star-11';
+const characters=[...BASE_DATA.characters,...NEW_HEROES,...SIX_HEROES].filter(h=>!RETIRED_HERO_IDS.includes(h.id)).map(applyHeroRework).map(applyFiveStar).map(h=>({...h,weapons:WEAPON_PERMISSIONS[h.id]||h.weapons}));
 const wudi=characters.find(h=>h.id==='wudi');Object.assign(wudi.passive,{paymentMaxHpFraction:.05,conversionMultiplier:.4,donorCount:4,donor:"全部其他存活队友",paymentFormula:"potential_i=min(0.05*maxHP_i,HP_i-1); scale=min(1,availableShieldCap/(sum(potential_i)*0.4*(1+shieldBonus))); payment_i=potential_i*scale",shieldFormula:"sum(actualHpPaid)*0.4*(1+shieldBonus)"});
-export const DATA = {...applyBattleRules(BASE_DATA),characters,permanentTalents:GROWTH_TALENTS,permanentGroupFocus:null,equipment:{...expandEquipment(BASE_DATA.equipment),sameTypeAffixWithinItemAllowed:true,affixSampling:'weighted_with_replacement'},balanceRevision:'roster-v0.27',requiresBattleEngineVersion:RULE_VERSION,
+export const DATA = {...applyBattleRules(BASE_DATA),characters,permanentTalents:GROWTH_TALENTS,permanentGroupFocus:null,equipment:{...expandEquipment(BASE_DATA.equipment),sameTypeAffixWithinItemAllowed:true,affixSampling:'weighted_with_replacement'},balanceRevision:'five-star-v0.28',requiresBattleEngineVersion:RULE_VERSION,
   recruitment:{...BASE_DATA.recruitment,weights:characters.map(h=>({name:h.name,weight:1,chanceBp:10000/characters.length}))}};
 DATA.initial={...DATA.initial,characters:['Kukalon','苏小瑶','哈斯卡'],equipment:DATA.initial.equipment.map(e=>({...e,character:({'门卫':'Kukalon','医务员':'苏小瑶','爆破工':'哈斯卡'})[e.character]||e.character}))};
 DATA.resourceStages=DATA.resourceStages.map(t=>{const r=t.rewards;if(!r.historicalGuaranteedCharacter||characters.some(h=>h.name===r.historicalGuaranteedCharacter))return t;return {...t,rewards:{...r,historicalGuaranteedCharacter:null,historicalUnitBonusRecruitPoints:(r.historicalUnitBonusRecruitPoints||0)+100}};});
